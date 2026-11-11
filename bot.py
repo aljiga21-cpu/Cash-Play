@@ -67,32 +67,28 @@ MIN_WITHDRAW_EUR = 5.00
 MIN_WITHDRAW_COINS = int(MIN_WITHDRAW_EUR * 100 * COINS_PER_CENT)
 DATA_FILE = Path(os.getenv("DATA_FILE", "./data/players.json"))
 
-GAME_TITLE = "ISLA SALVAJE"
+GAME_TITLE = "ISLA SALVAJE · MASCOTAS"
 START_COINS = 100
 MAX_INITDATA_AGE_SECONDS = 24 * 60 * 60
 
 PRODUCTS = {
-    "starter_pack": {
-        "title": "Pack de superviviente",
-        "description": "500 monedas + 3 botiquines",
-        "price": "1.99",
-        "coins": 500,
-        "medkits": 3,
-        "stars": 100,
+    "vip_fox": {
+        "title": "Zorro Aurora VIP",
+        "description": "Desbloquea para siempre al Zorro Aurora VIP",
+        "price": "2.99",
+        "character": "aurora_fox",
     },
-    "iron_axe": {
-        "title": "Hacha reforzada",
-        "description": "Herramienta mejorada para recolectar madera",
-        "price": "2.49",
-        "upgrade": "iron_axe",
-        "stars": 125,
+    "vip_dragon": {
+        "title": "Dragón Rubí VIP",
+        "description": "Desbloquea para siempre al Dragón Rubí VIP",
+        "price": "4.99",
+        "character": "ruby_dragon",
     },
-    "vip_7": {
-        "title": "Superviviente VIP (7 días)",
-        "description": "Bonificación diaria de monedas durante 7 días",
+    "vip_axolotl": {
+        "title": "Ajolote Cósmico VIP",
+        "description": "Desbloquea para siempre al Ajolote Cósmico VIP",
         "price": "3.99",
-        "vip_days": 7,
-        "stars": 200,
+        "character": "cosmic_axolotl",
     },
 }
 
@@ -172,6 +168,21 @@ def new_player(user: dict) -> dict:
         "vip_until": 0,
         "last_daily": "",
         "last_action": 0,
+        "pet_hunger": 85,
+        "pet_happiness": 85,
+        "pet_cleanliness": 90,
+        "pet_energy": 90,
+        "pet_health": 100,
+        "pet_sick": False,
+        "pet_poop": 0,
+        "pet_medicine": 2,
+        "pet_last_poop": time.time(),
+        "pet_game_date": "",
+        "pet_games_today": 0,
+        "pet_last_game": 0,
+        "pet_last_update": time.time(),
+        "owned_characters": ["sprout"],
+        "active_character": "sprout",
     }
 
 
@@ -188,6 +199,43 @@ def get_or_create_player(data: dict, user: dict) -> dict:
         player["tools"].append("spear")
     player.setdefault("world_nodes", [])
     player.setdefault("placed_buildings", [])
+    player.setdefault("pet_hunger", 85)
+    player.setdefault("pet_happiness", 85)
+    player.setdefault("pet_cleanliness", 90)
+    player.setdefault("pet_energy", 90)
+    player.setdefault("pet_health", 100)
+    player.setdefault("pet_sick", False)
+    player.setdefault("pet_poop", 0)
+    player.setdefault("pet_medicine", 2)
+    player.setdefault("pet_last_poop", time.time())
+    player.setdefault("pet_game_date", "")
+    player.setdefault("pet_games_today", 0)
+    player.setdefault("pet_last_game", 0)
+    player.setdefault("pet_last_update", time.time())
+    player.setdefault("owned_characters", ["sprout"])
+    if "sprout" not in player["owned_characters"]:
+        player["owned_characters"].insert(0, "sprout")
+    player.setdefault("active_character", "sprout")
+    elapsed = max(0, min(86400, time.time() - float(player.get("pet_last_update", time.time()))))
+    hours = elapsed / 3600.0
+    player["pet_hunger"] = max(0, float(player["pet_hunger"]) - hours * 2.0)
+    player["pet_happiness"] = max(0, float(player["pet_happiness"]) - hours * 1.25)
+    player["pet_cleanliness"] = max(0, float(player["pet_cleanliness"]) - hours * 1.0)
+    player["pet_energy"] = min(100, float(player["pet_energy"]) + hours * 1.6)
+    # La mascota hace sus necesidades de forma natural cada 5 horas, con un máximo de 3.
+    now_ts = time.time()
+    last_poop = float(player.get("pet_last_poop", now_ts))
+    due_piles = max(0, int((now_ts - last_poop) // 18000))
+    if due_piles:
+        player["pet_poop"] = min(3, int(player.get("pet_poop", 0)) + due_piles)
+        player["pet_last_poop"] = last_poop + due_piles * 18000
+    # La falta prolongada de higiene o comida puede provocar enfermedad.
+    if (float(player["pet_cleanliness"]) < 12 or float(player["pet_hunger"]) < 8 or int(player.get("pet_poop", 0)) >= 3):
+        player["pet_sick"] = True
+    if player.get("pet_sick"):
+        player["pet_health"] = max(10, float(player.get("pet_health", 100)) - hours * 3.0)
+        player["pet_happiness"] = max(0, float(player["pet_happiness"]) - hours * 1.5)
+    player["pet_last_update"] = now_ts
     player.setdefault("buildings", {"campfire": 0, "shelter": 0, "cabin": 0})
     player["buildings"].setdefault("cabin", 0)
     if not player["world_nodes"]:
@@ -225,6 +273,8 @@ def public_player(player: dict) -> dict:
         "id", "username", "first_name", "level", "xp", "coins", "redeemable_coins", "rewarded_ads_count", "health",
         "hunger", "thirst", "energy", "wood", "stone", "food", "water",
         "medkits", "inventory", "tools", "buildings", "placed_buildings", "world_nodes", "upgrades", "vip_until",
+        "pet_hunger", "pet_happiness", "pet_cleanliness", "pet_energy", "pet_health", "pet_sick",
+        "pet_poop", "pet_medicine", "pet_games_today", "owned_characters", "active_character",
     )
     return {key: player.get(key) for key in keys}
 
@@ -274,7 +324,7 @@ def mini_app_keyboard() -> dict:
     # Inline Web App button: Telegram attaches signed WebApp initData to this launch.
     return {
         "inline_keyboard": [[{
-            "text": "🌴 JUGAR A ISLA SALVAJE",
+            "text": "🐾 CUIDAR A MI MASCOTA",
             "web_app": {"url": f"{PUBLIC_URL}/"}
         }]]
     }
@@ -297,6 +347,12 @@ def deliver_paid_product(user_id: str, product_id: str, payment_charge_id: str, 
             raise ValueError("El pedido no pertenece a este jugador")
         if order.get("status") not in ("CREATED", "PAYMENT_RECEIVED"):
             raise ValueError("Este pedido ya ha sido procesado")
+        character = product.get("character")
+        if character:
+            owned = player.setdefault("owned_characters", ["sprout"])
+            if character not in owned:
+                owned.append(character)
+            player["active_character"] = character
         player["coins"] = int(player.get("coins", 0)) + int(product.get("coins", 0))
         player["medkits"] = int(player.get("medkits", 0)) + int(product.get("medkits", 0))
         upgrade = product.get("upgrade")
@@ -595,6 +651,12 @@ def paypal_capture_order():
                 if not player:
                     return jsonify(error="Jugador no encontrado"), 404
                 product = PRODUCTS[pending["product_id"]]
+                character = product.get("character")
+                if character:
+                    owned = player.setdefault("owned_characters", ["sprout"])
+                    if character not in owned:
+                        owned.append(character)
+                    player["active_character"] = character
                 player["coins"] += int(product.get("coins", 0))
                 player["medkits"] += int(product.get("medkits", 0))
                 if product.get("upgrade") and product["upgrade"] not in player["upgrades"]:
@@ -658,7 +720,81 @@ def api_action():
                 return jsonify(error="Espera un momento antes de repetir la acción"), 429
             player["last_action"] = now
 
-            if action == "harvest_node":
+            if action == "select_character":
+                character = str(body.get("character", ""))
+                if character not in player.setdefault("owned_characters", ["sprout"]):
+                    return jsonify(error="Todavía no has desbloqueado ese personaje VIP"), 403
+                player["active_character"] = character
+                message = "¡Tu nueva mascota ya está lista!"
+            elif action == "feed_pet":
+                if player["food"] < 1:
+                    return jsonify(error="No tienes pienso. Vuelve mañana o consigue una recompensa."), 400
+                player["food"] -= 1
+                player["pet_hunger"] = min(100, float(player["pet_hunger"]) + 28)
+                player["pet_happiness"] = min(100, float(player["pet_happiness"]) + 4)
+                message = "¡Ñam! Tu mascota ha comido feliz."
+            elif action == "play_pet":
+                if player["pet_energy"] < 8:
+                    return jsonify(error="Tu mascota está cansada. Déjala dormir un poco."), 400
+                player["pet_energy"] = max(0, float(player["pet_energy"]) - 8)
+                player["pet_happiness"] = min(100, float(player["pet_happiness"]) + 22)
+                player["pet_hunger"] = max(0, float(player["pet_hunger"]) - 3)
+                apply_xp(player, 8)
+                message = "¡Qué divertido! Tu mascota está más contenta."
+            elif action == "clean_pet":
+                player["pet_cleanliness"] = min(100, float(player["pet_cleanliness"]) + 38)
+                player["pet_happiness"] = min(100, float(player["pet_happiness"]) + 5)
+                message = "Baño terminado. ¡Tu mascota está reluciente!"
+            elif action == "clean_poop":
+                if int(player.get("pet_poop", 0)) < 1:
+                    return jsonify(error="No hay cacas que limpiar. ¡El jardín está limpio!"), 400
+                player["pet_poop"] = max(0, int(player.get("pet_poop", 0)) - 1)
+                player["pet_cleanliness"] = min(100, float(player["pet_cleanliness"]) + 8)
+                player["pet_happiness"] = min(100, float(player["pet_happiness"]) + 2)
+                message = "¡Has recogido sus necesidades! El jardín vuelve a estar limpio."
+            elif action == "give_medicine":
+                if not player.get("pet_sick"):
+                    return jsonify(error="Tu mascota está sana. No necesita medicinas."), 400
+                if int(player.get("pet_medicine", 0)) < 1:
+                    return jsonify(error="No tienes medicina. Consigue una en el regalo diario."), 400
+                player["pet_medicine"] -= 1
+                player["pet_sick"] = False
+                player["pet_health"] = min(100, float(player.get("pet_health", 100)) + 45)
+                player["pet_happiness"] = min(100, float(player["pet_happiness"]) + 8)
+                message = "La medicina ha hecho efecto. ¡Cuida su higiene y alimentación para que no recaiga!"
+            elif action == "mini_game":
+                game_id = str(body.get("game", ""))
+                if game_id not in ("catch", "memory", "dance"):
+                    return jsonify(error="Juego no válido"), 400
+                today = datetime.now(timezone.utc).date().isoformat()
+                if player.get("pet_game_date") != today:
+                    player["pet_game_date"] = today
+                    player["pet_games_today"] = 0
+                if int(player.get("pet_games_today", 0)) >= 10:
+                    return jsonify(error="Has jugado los 10 juegos de hoy. ¡Mañana habrá más!"), 400
+                if now - float(player.get("pet_last_game", 0)) < 12:
+                    return jsonify(error="Espera unos segundos antes de volver a jugar."), 429
+                player["pet_games_today"] = int(player.get("pet_games_today", 0)) + 1
+                player["pet_last_game"] = now
+                player["pet_happiness"] = min(100, float(player["pet_happiness"]) + 12)
+                player["pet_energy"] = max(0, float(player["pet_energy"]) - 4)
+                apply_xp(player, 5)
+                message = {"catch":"¡Buen trabajo atrapando estrellas!","memory":"¡Qué buena memoria! Tu mascota está feliz.","dance":"¡Menudo baile! Os lo habéis pasado genial."}[game_id]
+            elif action == "sleep_pet":
+                player["pet_energy"] = min(100, float(player["pet_energy"]) + 32)
+                player["pet_hunger"] = max(0, float(player["pet_hunger"]) - 2)
+                message = "Tu mascota ha descansado un rato."
+            elif action == "daily":
+                today = datetime.now(timezone.utc).date().isoformat()
+                if player.get("last_daily") == today:
+                    return jsonify(error="Ya has recogido la recompensa diaria"), 400
+                player["last_daily"] = today
+                player["food"] += 2
+                player["pet_medicine"] = min(5, int(player.get("pet_medicine", 0)) + 1)
+                player["coins"] += 15
+                player["pet_happiness"] = min(100, float(player["pet_happiness"]) + 8)
+                message = "Regalo diario: pienso, monedas y cariño para tu mascota."
+            elif action == "harvest_node":
                 node_id = str(body.get("node_id", ""))
                 px, pz = float(body.get("x", 9999)), float(body.get("z", 9999))
                 node = next((n for n in player["world_nodes"] if n["id"] == node_id and n.get("active")), None)
@@ -910,83 +1046,88 @@ GAME_HTML = r"""<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#101b19">
-<title>ISLA SALVAJE - Supervivencia 3D</title>
+<title>ISLA SALVAJE - Mi Mascota 3D</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script async src="https://libtl.com/sdk.js" data-zone="12235771" data-sdk="show_12235771"></script>
 <script>window.ISLA_PAYPAL_CLIENT_ID="__PAYPAL_CLIENT_ID__";</script>
 <style>
-:root{color-scheme:dark;--panel:rgba(12,24,22,.88);--line:rgba(255,255,255,.13);--green:#91d6a2}
-*{box-sizing:border-box}body{margin:0;background:#101b19;color:#fff;font-family:system-ui,Arial;overflow:hidden}
+:root{color-scheme:dark;--panel:rgba(19,22,43,.78);--line:rgba(255,255,255,.18);--green:#a8f4d2;--pink:#ff9ecb}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(145deg,#182448,#452b63 58%,#173f54);color:#fff;font-family:system-ui,Arial;overflow:hidden}
 #scene{position:fixed;inset:0;z-index:0}canvas{display:block}
 .hud{position:fixed;z-index:2;left:10px;right:10px;top:10px;display:flex;gap:8px;align-items:flex-start;justify-content:space-between;pointer-events:none}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:9px 11px;backdrop-filter:blur(10px);box-shadow:0 6px 25px #0005}
-.stats{display:grid;grid-template-columns:repeat(2,minmax(72px,1fr));gap:5px;font-size:12px;min-width:155px}
-.stat{color:#d8e8df}.stat b{color:#fff;float:right}
 .brand{font-weight:900;letter-spacing:1px;font-size:13px}.sub{font-size:10px;color:#b8c8bf}
-.bottom{position:fixed;z-index:5;left:auto;right:max(12px,env(safe-area-inset-right));bottom:max(14px,env(safe-area-inset-bottom));width:min( min(48vw,360px), calc(100vw - 145px));max-height:42vh;overflow-y:auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding:4px;align-content:end;overscroll-behavior:contain;scrollbar-width:thin}
+.petStats{min-width:190px;display:grid;gap:7px;font-size:11px}.meter{height:7px;background:#ffffff25;border-radius:99px;overflow:hidden;margin-top:3px}.meter i{display:block;height:100%;width:80%;border-radius:99px;background:linear-gradient(90deg,#8ef0c1,#ffe18a);transition:width .35s}.petName{font-size:17px;font-weight:900}.petMood{font-size:11px;color:#ffe1f0}.petActions{position:fixed;z-index:5;left:50%;transform:translateX(-50%);bottom:max(14px,env(safe-area-inset-bottom));display:flex;gap:8px;flex-wrap:wrap;justify-content:center;width:min(94vw,620px)}.petActions button{min-width:88px;background:linear-gradient(145deg,#59458b,#293f73);border:1px solid #ffffff35;box-shadow:0 7px 20px #070d2b70}.petActions button.primary{background:linear-gradient(145deg,#e66da9,#a747a5)}.petTop{display:flex;gap:8px;align-items:center}.petBadge{border-radius:99px;background:#ffffff20;padding:5px 9px;font-size:10px}
+
 button{border:1px solid var(--line);background:rgba(19,38,32,.94);color:#fff;border-radius:12px;padding:11px 7px;font-weight:700;font-size:12px;min-height:43px}
 button:active{transform:scale(.97);background:#315b42}button.primary{background:#267747;border-color:#4b9b69}
 #toast{position:fixed;z-index:8;left:50%;top:75px;transform:translateX(-50%);background:#172c24;border:1px solid #ffffff30;border-radius:12px;padding:10px 14px;display:none;max-width:90%;font-size:13px;text-align:center}
-#shop{position:fixed;z-index:6;inset:0;background:#0009;display:none;align-items:flex-end}
+#shop,#games{position:fixed;z-index:6;inset:0;background:#000b;display:none;align-items:flex-end;justify-content:center}
+.gameSheet{max-width:560px;margin:auto;border-radius:22px!important}
+.gameChoices{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.gameChoices button{min-height:74px;background:linear-gradient(145deg,#55418b,#243f72)}.gameChoices small{display:block;color:#d8d4ef;font-size:10px;margin-top:5px}
+#miniGameArea{min-height:170px;margin-top:12px;padding:12px;border-radius:16px;background:#0b171dcc;text-align:center}
+.gameTarget{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:50%;width:58px;height:58px;margin:7px;background:linear-gradient(145deg,#ffe58b,#ff8dc4);font-size:27px;box-shadow:0 5px 18px #ffb8d866}
+.memoryGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;max-width:330px;margin:10px auto}.memoryCard{height:58px;font-size:22px;background:#3d3472}
+.sickAlert{display:none;position:fixed;z-index:4;top:125px;left:50%;transform:translateX(-50%);background:#6b2938eF;border:1px solid #ff9cac;border-radius:12px;padding:9px 13px;font-size:12px;max-width:92vw;text-align:center}
 .sheet{width:100%;max-height:78vh;overflow:auto;background:#111f1b;border:1px solid #ffffff22;border-radius:20px 20px 0 0;padding:16px}
 .item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid #ffffff18}
 .item small{display:block;color:#b9c9c0;margin-top:3px}.item button{min-width:95px}
-#walletPanel{display:none;margin-top:12px;padding:13px;border:1px solid #ffffff25;border-radius:14px;background:#0b1713}#walletPanel input{width:100%;padding:12px;border-radius:9px;border:1px solid #ffffff35;background:#14251f;color:#fff;margin:6px 0}#walletPanel .walletBig{font-size:24px;font-weight:900;color:#9be4ad}#walletPanel .walletNote{font-size:11px;color:#b9c9c0;line-height:1.45}
+#walletPanel input{width:100%;padding:12px;border-radius:9px;border:1px solid #ffffff35;background:#14251f;color:#fff;margin:6px 0}#walletPanel .walletBig{font-size:24px;font-weight:900;color:#9be4ad}#walletPanel .walletNote{font-size:11px;color:#b9c9c0;line-height:1.45}
 #paypalPanel{display:none;margin-top:14px;padding:13px;border:1px solid #ffffff25;border-radius:14px;background:#0b1713}#paypal-button-container{min-height:48px}#paypalStatus{font-size:12px;color:#c9d8cf;margin:8px 0}
-#hint{position:fixed;z-index:2;left:50%;bottom:140px;transform:translateX(-50%);background:#07120f99;padding:7px 12px;border-radius:20px;font-size:11px;color:#e5eee8;white-space:nowrap;pointer-events:none;max-width:90vw;overflow:hidden;text-overflow:ellipsis}
-#joystick{position:fixed;z-index:6;left:max(12px,env(safe-area-inset-left));right:auto;top:auto;bottom:max(18px,env(safe-area-inset-bottom));width:104px;height:104px;border-radius:50%;border:2px solid #ffffff66;background:#07120f88;touch-action:none;display:grid;place-items:center;backdrop-filter:blur(4px);pointer-events:auto}
-#stick{width:48px;height:48px;border-radius:50%;background:#d8eee0bb;border:2px solid #fff;box-shadow:0 3px 14px #0008;transform:translate(0,0)}
-@media(max-width:600px){#joystick{left:max(9px,env(safe-area-inset-left));bottom:max(12px,env(safe-area-inset-bottom));width:88px;height:88px}.bottom{right:max(9px,env(safe-area-inset-right));bottom:max(12px,env(safe-area-inset-bottom));width:calc(100vw - 125px);max-height:38vh;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;padding:2px}.bottom button{min-width:0;min-height:40px;padding:8px 4px;font-size:11px}#hint{bottom:112px;font-size:10px}}
-@media(min-width:700px){#joystick{left:calc(50% - 430px);bottom:24px;width:112px;height:112px}#hint{bottom:145px}.bottom{left:auto;right:max(24px,env(safe-area-inset-right));bottom:24px;width:min(360px,38vw);max-height:48vh;transform:none;grid-template-columns:repeat(2,minmax(0,1fr))}.hud{max-width:900px;left:50%;right:auto;transform:translateX(-50%);width:calc(100% - 24px)}}
-@media(orientation:landscape) and (max-height:500px){#joystick{width:78px;height:78px;bottom:8px}.bottom{max-height:72vh;bottom:8px;width:min(42vw,340px)}#hint{bottom:90px}}
+#hint{position:fixed;z-index:2;left:50%;bottom:104px;transform:translateX(-50%);background:#07120f99;padding:7px 12px;border-radius:20px;font-size:11px;color:#e5eee8;white-space:nowrap;pointer-events:none;max-width:90vw;overflow:hidden;text-overflow:ellipsis}
+@media(max-width:600px){.hud{left:7px;right:7px;top:7px;gap:6px}.panel{padding:8px}.petStats{min-width:145px;font-size:10px}.petName{font-size:15px}.petActions{gap:5px;bottom:max(8px,env(safe-area-inset-bottom));width:98vw}.petActions button{min-width:76px;min-height:38px;padding:8px 5px;font-size:10px}#hint{bottom:104px;font-size:10px}.gameChoices{grid-template-columns:1fr}.gameChoices button{min-height:52px}.gameSheet{max-height:88vh;padding:13px}.sickAlert{top:118px;font-size:11px}}
+@media(min-width:700px){#hint{bottom:94px}.hud{max-width:900px;left:50%;right:auto;transform:translateX(-50%);width:calc(100% - 24px)}.petActions{bottom:22px}}
+@media(orientation:landscape) and (max-height:500px){.petActions{width:70vw;left:auto;right:10px;transform:none;bottom:8px}.petStats{min-width:160px}#hint{bottom:70px}}
 </style>
 </head>
 <body>
 <div id="scene"></div>
 <div class="hud">
- <div class="panel"><div class="brand">🌴 ISLA SALVAJE</div><div class="sub" id="worldWeather">☀️ Día · Despejado</div><div class="sub" id="level">Superviviente · Nivel 1</div><div class="sub" id="xp">0 / 100 XP</div></div>
- <div class="panel stats">
-  <div class="stat">❤️ Vida <b id="health">100</b></div><div class="stat">🍖 Hambre <b id="hunger">100</b></div>
-  <div class="stat">💧 Sed <b id="thirst">100</b></div><div class="stat">⚡ Energía <b id="energy">100</b></div>
-  <div class="stat">🪙 Monedas <b id="coins">100</b></div><div class="stat">🪵 Madera <b id="wood">0</b></div>
-  <div class="stat">🪨 Piedra <b id="stone">0</b></div><div class="stat">🍎 Comida <b id="food">2</b></div>
+ <div class="panel">
+  <div class="brand">🐾 MI MASCOTA · ISLA SALVAJE</div>
+  <div class="petName" id="petName">Sprout</div>
+  <div class="petMood" id="petMood">Tu nueva amistad te espera 💖</div>
+  <div class="sub">💊 Medicina: <b id="medicineCountTop">2</b> · 💩 Necesidades: <b id="poopCountTop">0</b></div>
+  <div class="sub" id="level">Nivel 1</div><div class="sub" id="xp">0 / 100 XP</div><div class="sub">🍓 Pienso disponible: <b id="foodCount">2</b></div>
+ </div>
+ <div class="panel petStats">
+  <div>🍓 Hambre <b id="petHungerText">85%</b><div class="meter"><i id="petHungerBar"></i></div></div>
+  <div>💗 Felicidad <b id="petHappyText">85%</b><div class="meter"><i id="petHappyBar"></i></div></div>
+  <div>🫧 Limpieza <b id="petCleanText">90%</b><div class="meter"><i id="petCleanBar"></i></div></div>
+  <div>⚡ Energía <b id="petEnergyText">90%</b><div class="meter"><i id="petEnergyBar"></i></div></div>
  </div>
 </div>
-<div id="hint">Joystick para moverte · Arrastra la derecha para mirar · Shift para correr</div>
-<div id="joystick"><div id="stick"></div></div>
+<div id="hint">Cuida de tu mascota, juega con ella y descubre sus reacciones ✨</div>
 <div id="toast"></div>
-<div class="bottom">
- <button onclick="harvestNearest()">🪓 Recolectar / cazar / pescar</button>
- <button onclick="buildCabin()">🏠 Construir cabaña</button>
- <button onclick="act('rest')">⚡ Descansar</button>
- <button onclick="act('eat')">🍎 Comer</button>
- <button onclick="act('drink')">💧 Beber cantimplora</button>
- <button onclick="act('drink_river',{x:playerMesh.position.x,z:playerMesh.position.z})">🏞️ Beber del río</button>
- <button onclick="act('daily')">🎁 Premio diario</button>
- <button onclick="act('build_campfire')">🔥 Hoguera</button>
- <button onclick="act('build_shelter')">🏕️ Refugio</button>
- <button id="rewardedAdButton" onclick="showRewardedAd()">🎬 Anuncio + recompensa</button>
- <button onclick="showPopupAd()">📺 Anuncio extra</button>
- <button onclick="openWallet()">💶 Mi cartera</button>
- <button onclick="openShop()">🛒 Tienda</button>
+<div class="petActions">
+ <button class="primary" onclick="petAction('feed_pet')">🍓 Dar de comer</button>
+ <button onclick="petAction('play_pet')">🎾 Jugar</button>
+ <button onclick="petAction('clean_pet')">🫧 Bañar</button>
+ <button onclick="petAction('clean_poop')">🧹 Recoger caca <b id="poopCount">0</b></button>
+ <button onclick="petAction('give_medicine')">💊 Medicina <b id="medicineCount">2</b></button>
+ <button onclick="openGames()">🎮 Juegos</button>
+ <button onclick="petAction('sleep_pet')">🌙 Dormir</button>
+ <button onclick="petAction('daily')">🎁 Regalo</button>
+ <button id="rewardedAdButton" onclick="showRewardedAd()">🎬 Anuncio</button>
+ <button onclick="openShop()">👑 Personajes VIP</button>
 </div>
-<div id="walletPanel" class="sheet" style="position:fixed;z-index:7;left:0;right:0;bottom:0;max-height:75vh;overflow:auto">
- <div style="display:flex;justify-content:space-between;align-items:center"><h3>💶 Mi cartera</h3><button onclick="closeWallet()">Cerrar ✕</button></div>
- <div class="walletBig"><span id="redeemableCoins">0</span> monedas canjeables</div>
- <p id="walletEuro" class="walletNote">Equivalencia: 0,00 €</p>
- <p id="walletAds" class="walletNote">Anuncios recompensados hoy: 0/10</p>
- <p class="walletNote">Conversión: 10.000 monedas = 0,01 €. Retirada mínima: 5 € (5.000.000 monedas). Con 10 monedas por anuncio y 10 anuncios diarios, tardarías unos 137 años en alcanzar 5 €; esta escala debe revisarse antes de prometer pagos. Las recompensas requieren confirmación del postback de Monetag. Los pagos se revisan y envían manualmente por PayPal.</p>
- <input id="paypalEmail" type="email" autocomplete="email" placeholder="Tu correo de PayPal">
- <button class="primary" style="width:100%" onclick="requestWithdrawal()">Solicitar retirada de 5 €</button>
- <p id="walletStatus" class="walletNote"></p>
+<div id="games"><div class="sheet gameSheet">
+ <div style="display:flex;justify-content:space-between;align-items:center"><div><h3>🎮 ¡Vamos a jugar!</h3><p class="sub">Juega con tu mascota para subir su felicidad. Máximo 10 partidas al día.</p></div><button onclick="closeGames()">Cerrar ✕</button></div>
+ <div class="gameChoices">
+  <button onclick="startMiniGame('catch')">⭐ Atrapa estrellas<small>Consigue 5 estrellas</small></button>
+  <button onclick="startMiniGame('memory')">🧠 Memoria<small>Encuentra 4 parejas</small></button>
+  <button onclick="startMiniGame('dance')">🎵 Baile<small>Sigue el ritmo</small></button>
  </div>
+ <div id="miniGameArea"><p class="sub">Elige un juego para empezar.</p></div>
+ </div></div>
+<div id="sickAlert" class="sickAlert">🤒 Tu mascota está enferma. Límpiala, aliméntala y dale medicina.</div>
 <div id="shop"><div class="sheet">
- <div style="display:flex;justify-content:space-between;align-items:center"><h3>🛒 Tienda de supervivencia</h3><button onclick="closeShop()">Cerrar ✕</button></div>
- <div class="item"><div><b>Pack de superviviente</b><small>500 monedas + 3 botiquines · 1,99 €</small></div><button onclick="buy('starter_pack')">Comprar</button></div>
- <div class="item"><div><b>Hacha reforzada</b><small>Mejora para recolectar más madera · 2,49 €</small></div><button onclick="buy('iron_axe')">Comprar</button></div>
- <div class="item"><div><b>VIP 7 días</b><small>Ventajas VIP · 3,99 €</small></div><button onclick="buy('vip_7')">Comprar</button></div>
+ <div style="display:flex;justify-content:space-between;align-items:center"><div><h3>👑 Personajes VIP</h3><p class="sub">Desbloquea criaturas especiales para siempre. La mascota básica es gratuita.</p></div><button onclick="closeShop()">Cerrar ✕</button></div>
+ <div class="item"><div><b>🦊 Zorro Aurora VIP</b><small>Pelaje brillante y detalles mágicos · 2,99 €</small></div><button id="buyFox" onclick="buy('vip_fox')">Desbloquear</button></div>
+ <div class="item"><div><b>🐉 Dragón Rubí VIP</b><small>Alas, cuernos y escamas rubí · 4,99 €</small></div><button id="buyDragon" onclick="buy('vip_dragon')">Desbloquear</button></div>
+ <div class="item"><div><b>🩵 Ajolote Cósmico VIP</b><small>Branquias luminosas y cola acuática · 3,99 €</small></div><button id="buyAxolotl" onclick="buy('vip_axolotl')">Desbloquear</button></div>
+ <p class="sub">Los personajes VIP son cosméticos: no dan ventajas ni hacen falta para cuidar y jugar. Pago seguro mediante PayPal.</p>
  <div id="paypalPanel"><div style="display:flex;justify-content:space-between;align-items:center"><b>🔒 Pago seguro con PayPal</b><button onclick="closePaypal()">Cerrar</button></div><p id="paypalStatus">Elige PayPal para completar tu compra.</p><div id="paypal-button-container"></div></div>
- <p class="sub">El pago se realiza con PayPal. Al terminar, volverás a ISLA SALVAJE y recibirás tu compra automáticamente.</p>
  </div></div>
 
 <script type="module">
@@ -1006,13 +1147,22 @@ const toastEl = document.getElementById('toast');
 function toast(msg){toastEl.textContent=msg;toastEl.style.display='block';clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>toastEl.style.display='none',2600)}
 function renderPlayer(p){
  player=p;
- for(const k of ['health','hunger','thirst','energy','coins','wood','stone','food']) document.getElementById(k).textContent=p[k] ?? 0;
- const redeemable=Number(p.redeemable_coins||0);
- const walletCoins=document.getElementById('redeemableCoins'); if(walletCoins) walletCoins.textContent=redeemable.toLocaleString('es-ES');
- const walletEuro=document.getElementById('walletEuro'); if(walletEuro) walletEuro.textContent='Equivalencia: '+(redeemable/1000000).toLocaleString('es-ES',{style:'currency',currency:'EUR'});
- const walletAds=document.getElementById('walletAds'); if(walletAds) walletAds.textContent='Anuncios recompensados hoy: '+Number(p.rewarded_ads_count||0)+'/10';
- const rewardBtn=document.getElementById('rewardedAdButton'); if(rewardBtn){const capped=Number(p.rewarded_ads_count||0)>=10;rewardBtn.disabled=capped;rewardBtn.textContent=capped?'Límite diario alcanzado':'🎬 Anuncio + recompensa';}
- document.getElementById('level').textContent=`${p.first_name || 'Superviviente'} · Nivel ${p.level}`;
+ const petFields=[['pet_hunger','petHunger'],['pet_happiness','petHappy'],['pet_cleanliness','petClean'],['pet_energy','petEnergy']];
+ for(const [field,id] of petFields){const v=Math.round(Number(p[field]??0));document.getElementById(id+'Text').textContent=v+'%';document.getElementById(id+'Bar').style.width=v+'%';}
+ const mood=p.pet_sick?'No se encuentra bien. Necesita cuidados 🤒':p.pet_happiness>75?'¡Está encantada de verte! 💖':p.pet_happiness>40?'Quiere jugar contigo 🥰':'Necesita un poco de cariño 🥺';
+ document.getElementById('petMood').textContent=mood;
+ const sick=document.getElementById('sickAlert');if(sick)sick.style.display=p.pet_sick?'block':'none';
+ const poop=Number(p.pet_poop||0),medicine=Number(p.pet_medicine||0);
+ for(const id of ['poopCount','poopCountTop']){const el=document.getElementById(id);if(el)el.textContent=poop;}
+ for(const id of ['medicineCount','medicineCountTop']){const el=document.getElementById(id);if(el)el.textContent=medicine;}
+ if(typeof syncPoopVisuals==='function')syncPoopVisuals(poop);
+ document.getElementById('petName').textContent=({sprout:'Sprout',aurora_fox:'Zorro Aurora',ruby_dragon:'Dragón Rubí',cosmic_axolotl:'Ajolote Cósmico'})[p.active_character||'sprout']||'Sprout';
+ applyPetCharacter(p.active_character||'sprout');
+ const owned=p.owned_characters||['sprout'];
+ [['aurora_fox','buyFox','vip_fox'],['ruby_dragon','buyDragon','vip_dragon'],['cosmic_axolotl','buyAxolotl','vip_axolotl']].forEach(([id,buttonId,product])=>{const b=document.getElementById(buttonId);if(!b)return;if(owned.includes(id)){b.textContent=p.active_character===id?'En uso':'Usar';b.onclick=()=>selectCharacter(id);}else{b.textContent='Desbloquear';b.onclick=()=>buy(product);}});
+ document.getElementById('foodCount').textContent=Number(p.food||0);
+ const rewardBtn=document.getElementById('rewardedAdButton'); if(rewardBtn){const capped=Number(p.rewarded_ads_count||0)>=10;rewardBtn.disabled=capped;rewardBtn.textContent=capped?'Límite diario alcanzado':'🎬 Anuncio + pienso';}
+ document.getElementById('level').textContent=`Nivel ${p.level}`;
  document.getElementById('xp').textContent=`${p.xp} / ${p.level*100} XP`;
 }
 async function api(url,body){
@@ -1024,23 +1174,13 @@ async function api(url,body){
 async function load(){
  // Give Telegram WebView a short moment to initialize its signed launch data.
  for(let i=0;i<20 && !telegramInitData();i++) await new Promise(resolve=>setTimeout(resolve,150));
- try{const j=await api('/api/me');renderPlayer(j.player);syncWorld(j.player)}catch(e){toast(e.message)}
+ try{const j=await api('/api/me');renderPlayer(j.player)}catch(e){toast(e.message)}
 }
-window.act=async(action,extra={})=>{try{const j=await api('/api/action',{action,...extra});renderPlayer(j.player);syncWorld(j.player);toast(j.message);return j}catch(e){toast(e.message);return null}};
-window.harvestNearest=async()=>{
- const n=nearestResource(); if(!n){toast('No hay recursos, animales ni peces cerca. Explora la isla.');return;}
- await playHarvestAnimation(n);
- await window.act('harvest_node',{node_id:n.userData.node.id,x:playerMesh.position.x,z:playerMesh.position.z});
-};
-window.buildCabin=async()=>{const j=await window.act('build_cabin',{x:playerMesh.position.x,z:playerMesh.position.z});if(j)animateBuild(j.player.placed_buildings.at(-1));};
-window.openShop=()=>document.getElementById('shop').style.display='flex';
-window.openWallet=()=>{document.getElementById('walletPanel').style.display='block';if(player)renderPlayer(player)};
-window.closeWallet=()=>document.getElementById('walletPanel').style.display='none';
-window.requestWithdrawal=async()=>{
- const status=document.getElementById('walletStatus');
- try{status.textContent='Registrando solicitud…';const j=await api('/api/wallet/withdraw',{paypal_email:document.getElementById('paypalEmail').value});status.textContent=j.message;await load();}
- catch(e){status.textContent=e.message;}
-};
+window.act=async(action,extra={})=>{try{const j=await api('/api/action',{action,...extra});renderPlayer(j.player);toast(j.message);return j}catch(e){toast(e.message);return null}};
+window.petAction=async(action)=>{const result=await window.act(action);if(result){petReact(action);}};
+window.selectCharacter=async(character)=>{const result=await window.act('select_character',{character});if(result)applyPetCharacter(character);};
+
+window.openShop=()=>{document.getElementById('shop').style.display='flex';if(player)renderPlayer(player)};
 window.closeShop=()=>document.getElementById('shop').style.display='none';
 let paypalSdkPromise=null;
 let paypalButtonsInstance=null;
@@ -1081,7 +1221,7 @@ window.buy=async(product_id)=>{
     try{
      const result=await api('/api/paypal/capture-order',{order_id:data.orderID});
      if(!result.ok) throw new Error('PayPal no ha confirmado la compra.');
-     renderPlayer(result.player);syncWorld(result.player);
+     renderPlayer(result.player);
      status.textContent='¡Pago confirmado! Tu compra ya está en tu inventario.';
      toast('✅ Compra recibida. ¡Gracias por apoyar ISLA SALVAJE!');
      setTimeout(()=>{panel.style.display='none';},1800);
@@ -1137,7 +1277,7 @@ async function captureIfReturned(){ /* PayPal captura el pedido desde onApprove;
 
 // Escena 3D mejorada: vegetación animada, modelos orgánicos y acciones físicas.
 const host=document.getElementById('scene');
-const scene=new THREE.Scene(); scene.background=new THREE.Color(0x9dc4c4); scene.fog=new THREE.Fog(0x9dc4c4,32,115);
+const scene=new THREE.Scene(); scene.background=new THREE.Color(0x9bb8df); scene.fog=new THREE.Fog(0x9bb8df,22,70);
 const camera=new THREE.PerspectiveCamera(65,innerWidth/innerHeight,.1,300);
 camera.position.set(0,8,16);
 const renderer=new THREE.WebGLRenderer({antialias:true,alpha:false,powerPreference:'high-performance'});
@@ -1165,13 +1305,17 @@ const weatherNames={clear:'Despejado',cloudy:'Nublado',rain:'Lluvia',storm:'Torm
 function chooseWeather(now){const roll=Math.random();weather=roll<.36?'clear':roll<.57?'cloudy':roll<.79?'rain':roll<.9?'fog':'storm';nextWeatherAt=now+(55000+Math.random()*65000);const label=document.getElementById('worldWeather');if(label)label.textContent=(dayFactor>.2?'☀️ Día':'🌙 Noche')+' · '+weatherNames[weather];}
 let dayFactor=1;
 
-const ground=new THREE.Mesh(new THREE.PlaneGeometry(220,220,90,90),new THREE.MeshStandardMaterial({color:0x496c43,roughness:1}));
+const ground=new THREE.Mesh(new THREE.PlaneGeometry(220,220,90,90),new THREE.MeshStandardMaterial({color:0x648b72,roughness:1}));
 // Ondulación suave del terreno para evitar una superficie completamente plana.
 const gp=ground.geometry.attributes.position;for(let i=0;i<gp.count;i++){const x=gp.getX(i),z=gp.getY(i);gp.setZ(i,Math.sin(x*.17)*.10+Math.cos(z*.21)*.08+Math.sin((x+z)*.08)*.06);}ground.geometry.computeVertexNormals();ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;scene.add(ground);
 // Hierba en instancias: muchas briznas con movimiento de viento en el shader.
-const grassMat=new THREE.MeshStandardMaterial({color:0x65934b,roughness:1,side:THREE.DoubleSide});
+const grassMat=new THREE.MeshStandardMaterial({color:0x9acb91,roughness:1,side:THREE.DoubleSide});
 grassMat.onBeforeCompile=(shader)=>{shader.vertexShader=shader.vertexShader.replace('#include <common>','#include <common>\nuniform float uWindTime;');shader.vertexShader=shader.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\ntransformed.x += sin(uWindTime + instanceMatrix[3].x*0.17 + instanceMatrix[3].z*0.13) * position.y * 0.10;');shader.uniforms.uWindTime={value:0};grassMat.userData.shader=shader;};
 const bladeGeo=new THREE.ConeGeometry(.045,.42,3);bladeGeo.translate(0,.21,0);const grass=new THREE.InstancedMesh(bladeGeo,grassMat,1800);const dummy=new THREE.Object3D();let gi=0;for(let i=0;i<1800;i++){const x=(Math.random()-.5)*42,z=(Math.random()-.5)*42;if(Math.hypot(x/1.25,z/.85)>20)continue;dummy.position.set(x,.05,z);dummy.rotation.y=Math.random()*Math.PI;dummy.scale.setScalar(.55+Math.random()*.8);dummy.updateMatrix();grass.setMatrixAt(gi++,dummy.matrix);}grass.count=gi;grass.instanceMatrix.needsUpdate=true;scene.add(grass);
+// Jardín de mascota: pequeñas flores, setas y piedras decorativas alrededor del hogar.
+const garden=new THREE.Group();const flowerColors=[0xff9ecb,0xffdf87,0xb8a0ff,0xffffff];
+for(let i=0;i<44;i++){const a=Math.random()*Math.PI*2,r=3.8+Math.random()*7,x=Math.cos(a)*r,z=Math.sin(a)*r;const stem=new THREE.Mesh(new THREE.CylinderGeometry(.018,.025,.24,5),new THREE.MeshStandardMaterial({color:0x4b9a63}));stem.position.set(x,.12,z);garden.add(stem);const bloom=new THREE.Mesh(new THREE.SphereGeometry(.105,10,8),new THREE.MeshStandardMaterial({color:flowerColors[i%flowerColors.length],emissive:flowerColors[i%flowerColors.length],emissiveIntensity:.08}));bloom.position.set(x,.29,z);garden.add(bloom);}
+scene.add(garden);
 const sand=new THREE.Mesh(new THREE.CircleGeometry(22,64),new THREE.MeshStandardMaterial({color:0xc5b27d,roughness:1}));sand.rotation.x=-Math.PI/2;sand.position.y=.025;sand.scale.set(1.25,.85,1);scene.add(sand);
 const water=new THREE.Mesh(new THREE.PlaneGeometry(220,220),new THREE.MeshStandardMaterial({color:0x287f91,roughness:.35,metalness:.1}));water.rotation.x=-Math.PI/2;water.position.y=-.12;scene.add(water);
 // Río sinuoso con orillas de arena, agua animada y reflejos suaves.
@@ -1183,6 +1327,14 @@ const riverBanks=new THREE.Group();for(let side of [-1,1]){const bank=new THREE.
 const riverFishMeshes=new Map();const fishSwimmers=[];
 function makeFish(node){const g=new THREE.Group();g.position.set(node.x,.22,node.z);const body=new THREE.Mesh(new THREE.SphereGeometry(.22,12,8),new THREE.MeshStandardMaterial({color:0xd9a85b,metalness:.25,roughness:.35}));body.scale.set(1.45,.55,.65);g.add(body);const tail=new THREE.Mesh(new THREE.ConeGeometry(.13,.25,5),new THREE.MeshStandardMaterial({color:0xc98543}));tail.rotation.z=-Math.PI/2;tail.position.x=-.34;g.add(tail);g.userData.node=node;scene.add(g);riverFishMeshes.set(node.id,g);fishSwimmers.push(g);return g;}
 const trunkMat=new THREE.MeshStandardMaterial({color:0x65452d,roughness:1}),leafMat=new THREE.MeshStandardMaterial({color:0x285b38,roughness:1}),leafLightMat=new THREE.MeshStandardMaterial({color:0x3d7844,roughness:1});
+// Árboles ornamentales del jardín, colocados alrededor del espacio de juego.
+for(let i=0;i<13;i++){
+ const a=i/13*Math.PI*2,rad=12.5+(i%3)*1.6,x=Math.cos(a)*rad,z=Math.sin(a)*rad;
+ const decor=new THREE.Group();decor.position.set(x,0,z);const h=2.8+(i%4)*.32;
+ const trunk=new THREE.Mesh(new THREE.CylinderGeometry(.17,.29,h,9),trunkMat);trunk.position.y=h/2;trunk.castShadow=true;decor.add(trunk);
+ for(let j=0;j<5;j++){const crown=new THREE.Mesh(new THREE.IcosahedronGeometry(.9+(j%2)*.18,1),j%3===0?leafLightMat:leafMat);crown.position.set(Math.sin(j*2.3)*.48,h*.72+(j%3)*.42,Math.cos(j*2.3)*.42);crown.scale.set(1.12,.95,1);crown.castShadow=true;decor.add(crown);}
+ scene.add(decor);
+}
 const animatedTrees=[];
 const resourceMeshes=new Map();const fallingTrees=[];let harvestAnimating=false;
 function tree(x,z,s=1,node){
@@ -1226,45 +1378,70 @@ function animateBuild(b){if(!b||placedIds.has(b.id))return;placedIds.add(b.id);c
  }else{for(let i=0;i<3;i++){const log=new THREE.Mesh(new THREE.CylinderGeometry(.13,.13,1.5,8),wood);log.rotation.z=Math.PI/2;log.rotation.y=i*Math.PI/3;log.position.y=.2;g.add(log);}const flame=new THREE.Mesh(new THREE.ConeGeometry(.3,.8,8),new THREE.MeshStandardMaterial({color:0xff8b27,emissive:0xff4500,emissiveIntensity:1}));flame.position.y=.65;g.add(flame);}
  g.scale.set(.01,.01,.01);let start=performance.now();function grow(now){const v=Math.min(1,(now-start)/1700);g.scale.setScalar(v);if(v<1)requestAnimationFrame(grow);}requestAnimationFrame(grow);
 }
-// Superviviente 3D mejorado: torso, ropa, mochila, brazos, piernas, botas y rostro.
+// Mascota 3D original: cuerpo orgánico, ojos con brillo, hocico, orejas, patas y cola articulada.
 const playerMesh=new THREE.Group();
-const skinMat=new THREE.MeshStandardMaterial({color:0xb97850,roughness:.78});
-const shirtMat=new THREE.MeshStandardMaterial({color:0x405b43,roughness:.92});
-const pantsMat=new THREE.MeshStandardMaterial({color:0x303b38,roughness:.95});
-const leatherMat=new THREE.MeshStandardMaterial({color:0x493326,roughness:.9});
-const bootMat=new THREE.MeshStandardMaterial({color:0x211e1a,roughness:.95});
+const furMat=new THREE.MeshStandardMaterial({color:0x83d9b5,roughness:.62});
+const bellyMat=new THREE.MeshStandardMaterial({color:0xffe4c9,roughness:.78});
+const innerMat=new THREE.MeshStandardMaterial({color:0xffa9c8,roughness:.65});
+const eyeWhite=new THREE.MeshStandardMaterial({color:0xffffff,roughness:.22});
+const pupilMat=new THREE.MeshPhysicalMaterial({color:0x17162b,roughness:.12,clearcoat:1});
+const shineMat=new THREE.MeshBasicMaterial({color:0xffffff});
+const accentMat=new THREE.MeshStandardMaterial({color:0xf4a8d2,roughness:.45,metalness:.12});
+const mouthMat=new THREE.MeshStandardMaterial({color:0x75445d,roughness:.6});
 function part(parent,geo,mat,pos,scale){const m=new THREE.Mesh(geo,mat);m.position.set(...pos);if(scale)m.scale.set(...scale);m.castShadow=true;m.receiveShadow=true;parent.add(m);return m;}
-const torso=part(playerMesh,new THREE.CapsuleGeometry(.36,.68,6,12),shirtMat,[0,1.35,0],[1,1,0.78]);
-part(playerMesh,new THREE.SphereGeometry(.245,24,18),skinMat,[0,2.12,0],[.92,1.12,.9]);
-// pelo y rasgos faciales sencillos
-const hairMat=new THREE.MeshStandardMaterial({color:0x241b15,roughness:1});
-part(playerMesh,new THREE.SphereGeometry(.25,20,12,0,Math.PI*2,0,Math.PI*.48),hairMat,[0,2.22,-.015],[1.02,.75,1]);
-const eyeMat=new THREE.MeshStandardMaterial({color:0x171411,roughness:.4});
-part(playerMesh,new THREE.SphereGeometry(.025,10,8),eyeMat,[-.085,2.14,.215]);part(playerMesh,new THREE.SphereGeometry(.025,10,8),eyeMat,[.085,2.14,.215]);
-// mochila
-part(playerMesh,new THREE.BoxGeometry(.48,.58,.22),leatherMat,[0,1.38,-.31]);
-part(playerMesh,new THREE.BoxGeometry(.32,.12,.24),new THREE.MeshStandardMaterial({color:0x8b6a3e}),[0,1.55,-.45]);
+const torso=part(playerMesh,new THREE.SphereGeometry(.78,40,32),furMat,[0,1.05,0],[1.0,.92,.86]);
+part(playerMesh,new THREE.SphereGeometry(.52,32,24),bellyMat,[0,.88,.55],[.82,.82,.36]);
+const headPivot=new THREE.Group();headPivot.position.set(0,1.72,.12);playerMesh.add(headPivot);
+part(headPivot,new THREE.SphereGeometry(.68,40,32),furMat,[0,.12,.08],[1.0,.96,.88]);
+// Hocico y nariz
+part(headPivot,new THREE.SphereGeometry(.30,28,20),bellyMat,[0,-.12,.69],[1.0,.72,.62]);
+part(headPivot,new THREE.SphereGeometry(.075,18,14),mouthMat,[0,-.04,1.02],[1.25,.72,.7]);
+// Ojos grandes con iris, pupila y reflejos
+for(const side of [-1,1]){
+ part(headPivot,new THREE.SphereGeometry(.155,24,20),eyeWhite,[side*.265,.22,.72],[.9,1.08,.48]);
+ part(headPivot,new THREE.SphereGeometry(.105,22,18),pupilMat,[side*.265,.215,.81],[.78,1.0,.45]);
+ part(headPivot,new THREE.SphereGeometry(.038,14,12),shineMat,[side*.295,.265,.855]);
+ part(headPivot,new THREE.SphereGeometry(.095,18,14),accentMat,[side*.43,-.12,.65],[1.0,.72,.25]);
+}
+// Orejas flexibles
+const ears=[];
+for(const side of [-1,1]){const ear=new THREE.Group();ear.position.set(side*.43,.66,-.02);headPivot.add(ear);part(ear,new THREE.SphereGeometry(.25,24,18),furMat,[0,.2,0],[.72,1.5,.38]);part(ear,new THREE.SphereGeometry(.14,20,16),innerMat,[0,.22,.115],[.68,1.35,.22]);ear.rotation.z=-side*.18;ears.push(ear);}
+// Patitas articuladas
 const arms=[],legs=[];
 for(const side of [-1,1]){
- const armPivot=new THREE.Group();armPivot.position.set(side*.43,1.68,0);playerMesh.add(armPivot);part(armPivot,new THREE.CapsuleGeometry(.105,.48,5,10),shirtMat,[0,-.28,0]);part(armPivot,new THREE.SphereGeometry(.11,12,10),skinMat,[0,-.59,.015]);arms.push(armPivot);
- const legPivot=new THREE.Group();legPivot.position.set(side*.19,.88,0);playerMesh.add(legPivot);part(legPivot,new THREE.CapsuleGeometry(.14,.48,5,10),pantsMat,[0,-.25,0]);part(legPivot,new THREE.BoxGeometry(.25,.15,.4),bootMat,[0,-.56,.09]);legs.push(legPivot);
+ const armPivot=new THREE.Group();armPivot.position.set(side*.58,1.2,.18);playerMesh.add(armPivot);part(armPivot,new THREE.SphereGeometry(.20,20,16),furMat,[0,-.18,.05],[.85,1.25,.8]);part(armPivot,new THREE.SphereGeometry(.19,18,14),bellyMat,[0,-.38,.12],[1.05,.58,.8]);arms.push(armPivot);
+ const legPivot=new THREE.Group();legPivot.position.set(side*.38,.58,-.02);playerMesh.add(legPivot);part(legPivot,new THREE.SphereGeometry(.22,20,16),furMat,[0,-.12,0],[.9,1.15,.9]);part(legPivot,new THREE.SphereGeometry(.20,20,16),bellyMat,[0,-.27,.12],[1.15,.62,.9]);legs.push(legPivot);
 }
+// Cola mullida segmentada
+const tailPivot=new THREE.Group();tailPivot.position.set(0,1.12,-.66);playerMesh.add(tailPivot);
+part(tailPivot,new THREE.CapsuleGeometry(.19,.72,6,12),furMat,[0,.12,-.38],[1.0,1.0,1.15]).rotation.x=-.55;
+part(tailPivot,new THREE.SphereGeometry(.23,20,16),accentMat,[0,.38,-.78],[1.0,1.0,1.0]);
+// Mejillas y pequeños detalles luminosos
+for(const side of [-1,1]){part(headPivot,new THREE.SphereGeometry(.045,12,10),shineMat,[side*.53,.02,.72]);}
 scene.add(playerMesh);
-// Detalles faciales, cinturón y guantes para dar más identidad al superviviente.
-const browMat=new THREE.MeshStandardMaterial({color:0x38271e});
-part(playerMesh,new THREE.BoxGeometry(.09,.018,.025),browMat,[-.085,2.19,.225]);part(playerMesh,new THREE.BoxGeometry(.09,.018,.025),browMat,[.085,2.19,.225]);
-part(playerMesh,new THREE.ConeGeometry(.035,.10,8),skinMat,[0,2.09,.245]);
-const mouthMat=new THREE.MeshStandardMaterial({color:0x572c27});part(playerMesh,new THREE.BoxGeometry(.075,.012,.012),mouthMat,[0,2.025,.225]);
-part(playerMesh,new THREE.BoxGeometry(.72,.12,.42),leatherMat,[0,1.03,0]);
-// Hacha visible en la mano derecha; el mango y la hoja giran con el brazo.
-const toolGroup=new THREE.Group();toolGroup.position.set(0,-.66,.12);arms[1].add(toolGroup);
-const handleMat=new THREE.MeshStandardMaterial({color:0x6a4528,roughness:1});const axeHeadMat=new THREE.MeshStandardMaterial({color:0x9aa5a7,metalness:.72,roughness:.3});
-part(toolGroup,new THREE.CylinderGeometry(.035,.045,.72,8),handleMat,[0,-.12,0]);
-const axeBlade=part(toolGroup,new THREE.BoxGeometry(.32,.24,.07),axeHeadMat,[.15,.18,0]);axeBlade.rotation.z=-.18;
-toolGroup.visible=false;
-const spearGroup=new THREE.Group();spearGroup.position.set(0,-.66,.12);arms[1].add(spearGroup);
-const spearShaft=part(spearGroup,new THREE.CylinderGeometry(.025,.035,.95,7),handleMat,[0,-.05,0]);
-const spearTip=part(spearGroup,new THREE.ConeGeometry(.085,.24,7),axeHeadMat,[0,.53,0]);spearGroup.visible=false;
+const poopVisuals=new THREE.Group();scene.add(poopVisuals);
+function syncPoopVisuals(count){
+ while(poopVisuals.children.length>count*3){const m=poopVisuals.children[poopVisuals.children.length-1];poopVisuals.remove(m);m.geometry.dispose();m.material.dispose();}
+ while(poopVisuals.children.length<count*3){const i=Math.floor(poopVisuals.children.length/3);const partIndex=poopVisuals.children.length%3;const size=[.13,.10,.075][partIndex];const mesh=new THREE.Mesh(new THREE.SphereGeometry(size,12,10),new THREE.MeshStandardMaterial({color:0x79502f,roughness:1}));mesh.position.set(-1.25+i*.72+(partIndex-1)*.09,.08+size*.45,-.35+(partIndex%2)*.12);mesh.scale.y=.72;mesh.castShadow=true;poopVisuals.add(mesh);}
+}
+const vipExtras=new THREE.Group();headPivot.add(vipExtras);
+function applyPetCharacter(id){
+ const styles={sprout:{fur:0x83d9b5,belly:0xffe4c9,accent:0xf4a8d2,inner:0xffa9c8},aurora_fox:{fur:0xffa34d,belly:0xffedcf,accent:0x8b69ff,inner:0xffc5b5},ruby_dragon:{fur:0x9d354c,belly:0xf4b17b,accent:0xffd35a,inner:0x63263d},cosmic_axolotl:{fur:0x85c9ff,belly:0xe8f5ff,accent:0xb58bff,inner:0xffa4dc}};
+ const st=styles[id]||styles.sprout;furMat.color.setHex(st.fur);bellyMat.color.setHex(st.belly);accentMat.color.setHex(st.accent);innerMat.color.setHex(st.inner);
+ vipExtras.clear();
+ if(id==='aurora_fox'){
+  for(const side of [-1,1]){const tuft=part(vipExtras,new THREE.ConeGeometry(.13,.42,8),accentMat,[side*.35,.63,-.02]);tuft.rotation.z=-side*.28;}
+  const star=part(vipExtras,new THREE.OctahedronGeometry(.13),new THREE.MeshStandardMaterial({color:0xffe58a,emissive:0xffbd42,emissiveIntensity:.55}),[0,.78,.03]);
+ }else if(id==='ruby_dragon'){
+  for(const side of [-1,1]){const horn=part(vipExtras,new THREE.ConeGeometry(.13,.48,8),accentMat,[side*.34,.68,-.04]);horn.rotation.z=-side*.3;const wing=part(vipExtras,new THREE.ConeGeometry(.42,.85,5),accentMat,[side*.72,-.12,-.36]);wing.rotation.z=side*-.8;wing.rotation.x=-.35;}
+ }else if(id==='cosmic_axolotl'){
+  for(const side of [-1,1])for(let j=0;j<3;j++){const gill=part(vipExtras,new THREE.ConeGeometry(.09,.34,7),accentMat,[side*(.58+j*.07),.05-j*.13,.03]);gill.rotation.z=side*(.9+j*.12);}
+ }
+}
+function petReact(action){const now=performance.now();playerMesh.userData.reactUntil=now+950;playerMesh.userData.react=action;}
+// Acciones de mascota: las herramientas de supervivencia se retiran del modelo.
+const toolGroup=new THREE.Group();arms[1].add(toolGroup);toolGroup.visible=false;
+const spearGroup=new THREE.Group();arms[1].add(spearGroup);spearGroup.visible=false;
 const woodParticles=[];const particleMat=new THREE.MeshStandardMaterial({color:0xc99a55});
 function burstWood(pos){for(let i=0;i<9;i++){const m=new THREE.Mesh(new THREE.BoxGeometry(.045,.045,.12),particleMat);m.position.copy(pos);scene.add(m);woodParticles.push({mesh:m,vel:new THREE.Vector3((Math.random()-.5)*2,1+Math.random()*1.8,(Math.random()-.5)*2),life:.65});}}
 async function playHarvestAnimation(obj){
@@ -1273,23 +1450,13 @@ async function playHarvestAnimation(obj){
  else {pivot.rotation.x=-1.65;await new Promise(r=>setTimeout(r,180));pivot.rotation.x=.35;burstWood(new THREE.Vector3(obj.position.x,.7,obj.position.z));await new Promise(r=>setTimeout(r,200));if(isAnimal){obj.rotation.y+=.35;obj.position.y=.08;}if(isFish){obj.position.y=.45;}}
  pivot.rotation.x=old;toolGroup.visible=false;spearGroup.visible=false;harvestAnimating=false;
 }
-const camp=new THREE.Group();const logMat=new THREE.MeshStandardMaterial({color:0x5b3b25});
-for(let i=0;i<3;i++){const log=new THREE.Mesh(new THREE.CylinderGeometry(.12,.12,1.4,8),logMat);log.rotation.z=Math.PI/2;log.rotation.y=i*Math.PI/3;log.position.set(3,.15,2);log.castShadow=true;camp.add(log)}
-scene.add(camp);
+// Pequeña zona de descanso visual para la mascota.
 let cameraAngle=0,dragging=false,lastX=0,lastY=0;
 const keys={};let moveX=0,moveY=0,sprinting=false;
-const joy=document.getElementById('joystick'),stick=document.getElementById('stick');
-let joyPointer=null;
-function setJoy(e){const r=joy.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2;let dx=e.clientX-cx,dy=e.clientY-cy;const len=Math.hypot(dx,dy),max=43;if(len>max){dx=dx/len*max;dy=dy/len*max}moveX=dx/max;moveY=dy/max;stick.style.transform=`translate(${dx}px,${dy}px)`;}
-joy.addEventListener('pointerdown',e=>{joyPointer=e.pointerId;joy.setPointerCapture(e.pointerId);setJoy(e)});
-joy.addEventListener('pointermove',e=>{if(e.pointerId===joyPointer)setJoy(e)});
-function resetJoy(){joyPointer=null;moveX=moveY=0;stick.style.transform='translate(0,0)'}
-joy.addEventListener('pointerup',resetJoy);joy.addEventListener('pointercancel',resetJoy);
-renderer.domElement.addEventListener('pointerdown',e=>{if(e.clientX<innerWidth*.38 && e.clientY>innerHeight*.45)return;dragging=true;lastX=e.clientX;lastY=e.clientY;renderer.domElement.setPointerCapture(e.pointerId)});
+// La mascota permanece en su jardín; el usuario puede girar la cámara arrastrando.
+renderer.domElement.addEventListener('pointerdown',e=>{dragging=true;lastX=e.clientX;lastY=e.clientY;renderer.domElement.setPointerCapture(e.pointerId)});
 renderer.domElement.addEventListener('pointermove',e=>{if(dragging){cameraAngle-=(e.clientX-lastX)*.006;lastX=e.clientX;lastY=e.clientY}});
 renderer.domElement.addEventListener('pointerup',()=>dragging=false);renderer.domElement.addEventListener('pointercancel',()=>dragging=false);
-addEventListener('keydown',e=>{keys[e.key.toLowerCase()]=true;if(e.key==='Shift')sprinting=true});
-addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false;if(e.key==='Shift')sprinting=false});
 function animate(){
  requestAnimationFrame(animate);
  const t=performance.now()*.001;
@@ -1325,18 +1492,23 @@ function animate(){
  for(let i=fallingTrees.length-1;i>=0;i--){const f=fallingTrees[i];f.life-=1/60;f.mesh.rotation.z+=f.dir*.018;f.mesh.rotation.x+=.006;if(f.life<=0){scene.remove(f.mesh);fallingTrees.splice(i,1);}}
  for(let i=woodParticles.length-1;i>=0;i--){const q=woodParticles[i];q.life-=1/60;q.mesh.position.addScaledVector(q.vel,1/60);q.vel.y-=4/60;q.mesh.rotation.x+=.12;if(q.life<=0){scene.remove(q.mesh);woodParticles.splice(i,1);}}
  if(weather==='storm'&&now<lightningUntil){sun.intensity=4.8;} 
- const kx=(keys.d||keys.arrowright?1:0)-(keys.a||keys.arrowleft?1:0);
- const ky=(keys.w||keys.arrowup?1:0)-(keys.s||keys.arrowdown?1:0);
+ const kx=0;
+ const ky=0;
  let mx=moveX+kx,my=moveY+ky;const mag=Math.hypot(mx,my);if(mag>1){mx/=mag;my/=mag}
- const moving=mag>.08;const speed=(sprinting||keys.shift?7.2:4.2);
- if(moving){const forwardX=Math.sin(cameraAngle),forwardZ=Math.cos(cameraAngle);const rightX=Math.cos(cameraAngle),rightZ=-Math.sin(cameraAngle);const dx=(rightX*mx+forwardX*my)*speed/60,dz=(rightZ*mx+forwardZ*my)*speed/60;playerMesh.position.x+=dx;playerMesh.position.z+=dz;playerMesh.rotation.y=Math.atan2(dx,dz);}
- const stride=moving?Math.sin(t*(sprinting||keys.shift?13:9))*.62:0;
- legs[0].rotation.x=stride;legs[1].rotation.x=-stride;arms[0].rotation.x=-stride*.65;if(!harvestAnimating)arms[1].rotation.x=stride*.65;
- torso.rotation.z=moving?Math.sin(t*5)*.025:0;
- camera.position.x=playerMesh.position.x+Math.sin(cameraAngle)*10;
- camera.position.z=playerMesh.position.z+Math.cos(cameraAngle)*10;
- camera.position.y=5.1;
+ const moving=mag>.08;const speed=(sprinting||keys.shift?3.4:2.0);
+ if(moving){const forwardX=Math.sin(cameraAngle),forwardZ=Math.cos(cameraAngle);const rightX=Math.cos(cameraAngle),rightZ=-Math.sin(cameraAngle);const dx=(rightX*mx+forwardX*my)*speed/60,dz=(rightZ*mx+forwardZ*my)*speed/60;playerMesh.position.x=THREE.MathUtils.clamp(playerMesh.position.x+dx,-5.5,5.5);playerMesh.position.z=THREE.MathUtils.clamp(playerMesh.position.z+dz,-5.5,5.5);playerMesh.rotation.y=Math.atan2(dx,dz);}
+ const stride=moving?Math.sin(t*9)*.48:Math.sin(t*2.2)*.055;
+ legs[0].rotation.x=stride;legs[1].rotation.x=-stride;arms[0].rotation.x=-stride*.45;arms[1].rotation.x=stride*.45;
+ torso.rotation.z=Math.sin(t*2.1)*.025;playerMesh.position.y=Math.sin(t*(moving?9:2.4))*(moving?.07:.045);
+ headPivot.rotation.x=Math.sin(t*1.4)*.035;headPivot.rotation.z=Math.sin(t*1.1)*.025;
+ ears[0].rotation.z=-.18+Math.sin(t*2.4)*.08;ears[1].rotation.z=.18-Math.sin(t*2.4)*.08;tailPivot.rotation.x=Math.sin(t*2.8)*.22;tailPivot.rotation.z=Math.sin(t*1.8)*.18;
+ const reaction=playerMesh.userData.reactUntil>now?playerMesh.userData.react:null;
+ if(reaction==='play_pet'){playerMesh.scale.setScalar(1+Math.max(0,Math.sin(t*18))*.14);arms[0].rotation.z=Math.sin(t*18)*.65;arms[1].rotation.z=-Math.sin(t*18)*.65;}else{playerMesh.scale.lerp(new THREE.Vector3(1,1,1),.12);}
+ camera.position.x=playerMesh.position.x+Math.sin(cameraAngle)*7.4;
+ camera.position.z=playerMesh.position.z+Math.cos(cameraAngle)*7.4;
+ camera.position.y=4.25;
  camera.lookAt(playerMesh.position.x,1.25,playerMesh.position.z);
+ poopVisuals.position.set(playerMesh.position.x,0,playerMesh.position.z);
  renderer.render(scene,camera);
 }
 animate();
