@@ -923,7 +923,7 @@ GAME_HTML = r"""<!doctype html>
 .stats{display:grid;grid-template-columns:repeat(2,minmax(72px,1fr));gap:5px;font-size:12px;min-width:155px}
 .stat{color:#d8e8df}.stat b{color:#fff;float:right}
 .brand{font-weight:900;letter-spacing:1px;font-size:13px}.sub{font-size:10px;color:#b8c8bf}
-.bottom{position:fixed;z-index:3;left:10px;right:10px;bottom:10px;display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+.bottom{position:fixed;z-index:5;left:auto;right:max(12px,env(safe-area-inset-right));bottom:max(14px,env(safe-area-inset-bottom));width:min( min(48vw,360px), calc(100vw - 145px));max-height:42vh;overflow-y:auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding:4px;align-content:end;overscroll-behavior:contain;scrollbar-width:thin}
 button{border:1px solid var(--line);background:rgba(19,38,32,.94);color:#fff;border-radius:12px;padding:11px 7px;font-weight:700;font-size:12px;min-height:43px}
 button:active{transform:scale(.97);background:#315b42}button.primary{background:#267747;border-color:#4b9b69}
 #toast{position:fixed;z-index:8;left:50%;top:75px;transform:translateX(-50%);background:#172c24;border:1px solid #ffffff30;border-radius:12px;padding:10px 14px;display:none;max-width:90%;font-size:13px;text-align:center}
@@ -933,11 +933,12 @@ button:active{transform:scale(.97);background:#315b42}button.primary{background:
 .item small{display:block;color:#b9c9c0;margin-top:3px}.item button{min-width:95px}
 #walletPanel{display:none;margin-top:12px;padding:13px;border:1px solid #ffffff25;border-radius:14px;background:#0b1713}#walletPanel input{width:100%;padding:12px;border-radius:9px;border:1px solid #ffffff35;background:#14251f;color:#fff;margin:6px 0}#walletPanel .walletBig{font-size:24px;font-weight:900;color:#9be4ad}#walletPanel .walletNote{font-size:11px;color:#b9c9c0;line-height:1.45}
 #paypalPanel{display:none;margin-top:14px;padding:13px;border:1px solid #ffffff25;border-radius:14px;background:#0b1713}#paypal-button-container{min-height:48px}#paypalStatus{font-size:12px;color:#c9d8cf;margin:8px 0}
-#hint{position:fixed;z-index:2;left:50%;bottom:178px;transform:translateX(-50%);background:#07120f99;padding:7px 12px;border-radius:20px;font-size:11px;color:#e5eee8;white-space:nowrap}
-#joystick{position:fixed;z-index:4;left:20px;bottom:190px;width:116px;height:116px;border-radius:50%;border:2px solid #ffffff66;background:#07120f66;touch-action:none;display:grid;place-items:center;backdrop-filter:blur(4px)}
+#hint{position:fixed;z-index:2;left:50%;bottom:140px;transform:translateX(-50%);background:#07120f99;padding:7px 12px;border-radius:20px;font-size:11px;color:#e5eee8;white-space:nowrap;pointer-events:none;max-width:90vw;overflow:hidden;text-overflow:ellipsis}
+#joystick{position:fixed;z-index:6;left:max(12px,env(safe-area-inset-left));right:auto;top:auto;bottom:max(18px,env(safe-area-inset-bottom));width:104px;height:104px;border-radius:50%;border:2px solid #ffffff66;background:#07120f88;touch-action:none;display:grid;place-items:center;backdrop-filter:blur(4px);pointer-events:auto}
 #stick{width:48px;height:48px;border-radius:50%;background:#d8eee0bb;border:2px solid #fff;box-shadow:0 3px 14px #0008;transform:translate(0,0)}
-@media(min-width:700px){#joystick{left:calc(50% - 390px);bottom:125px}#hint{bottom:145px}}
-@media(min-width:700px){.bottom{left:50%;right:auto;transform:translateX(-50%);width:min(560px,95vw)}.hud{max-width:900px;left:50%;right:auto;transform:translateX(-50%);width:calc(100% - 24px)}}
+@media(max-width:600px){#joystick{left:max(9px,env(safe-area-inset-left));bottom:max(12px,env(safe-area-inset-bottom));width:88px;height:88px}.bottom{right:max(9px,env(safe-area-inset-right));bottom:max(12px,env(safe-area-inset-bottom));width:calc(100vw - 125px);max-height:38vh;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;padding:2px}.bottom button{min-width:0;min-height:40px;padding:8px 4px;font-size:11px}#hint{bottom:112px;font-size:10px}}
+@media(min-width:700px){#joystick{left:calc(50% - 430px);bottom:24px;width:112px;height:112px}#hint{bottom:145px}.bottom{left:auto;right:max(24px,env(safe-area-inset-right));bottom:24px;width:min(360px,38vw);max-height:48vh;transform:none;grid-template-columns:repeat(2,minmax(0,1fr))}.hud{max-width:900px;left:50%;right:auto;transform:translateX(-50%);width:calc(100% - 24px)}}
+@media(orientation:landscape) and (max-height:500px){#joystick{width:78px;height:78px;bottom:8px}.bottom{max-height:72vh;bottom:8px;width:min(42vw,340px)}#hint{bottom:90px}}
 </style>
 </head>
 <body>
