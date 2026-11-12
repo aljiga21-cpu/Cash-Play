@@ -1343,7 +1343,7 @@ window.startMiniGame=async(kind)=>{
   let taps=0;const sequence=['⬅️','➡️','⬆️','⬇️','⬅️'];area.innerHTML='<p>Sigue la secuencia de baile tocando las flechas:</p><h2 id="danceCue">⬅️</h2><button class="gameTarget" onclick="danceTap()">💃</button><p id="danceScore">0 / 5</p>';window.danceTap=()=>{if(sequence[taps]){taps++;document.getElementById('danceScore').textContent=taps+' / 5';document.getElementById('danceCue').textContent=sequence[taps]||'🎉';if(taps===5)finishMiniGame(kind);}};
  }
 };
-async function finishMiniGame(kind){const result=await window.act('mini_game',{game:kind});if(result){petReact('mini_game');document.getElementById('miniGameArea').innerHTML='<h3>🎉 ¡Lo has conseguido!</h3><p>'+result.message+'</p><button onclick="startMiniGame(''+kind+'')">Volver a jugar</button>';}}
+async function finishMiniGame(kind){const result=await window.act('mini_game',{game:kind});if(result){petReact('mini_game');document.getElementById('miniGameArea').innerHTML='<h3>🎉 ¡Lo has conseguido!</h3><p>'+result.message+'</p><button onclick="startMiniGame(&quot;'+kind+'&quot;)">Volver a jugar</button>';}}
 
 // Monetag SDK: esperamos a que el script asíncrono esté realmente disponible.
 // La recompensa económica se acredita exclusivamente mediante postback S2S.
