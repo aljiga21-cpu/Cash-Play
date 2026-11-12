@@ -67,7 +67,7 @@ MIN_WITHDRAW_EUR = 5.00
 MIN_WITHDRAW_COINS = int(MIN_WITHDRAW_EUR * 100 * COINS_PER_CENT)
 DATA_FILE = Path(os.getenv("DATA_FILE", "./data/players.json"))
 
-GAME_TITLE = "ISLA SALVAJE · MASCOTAS"
+GAME_TITLE = "MI MASCOTA 3D · TAMAGOTCHI"
 START_COINS = 100
 MAX_INITDATA_AGE_SECONDS = 24 * 60 * 60
 
@@ -331,6 +331,22 @@ def telegram_api(method: str, payload: dict | None = None) -> dict:
     return result
 
 
+def set_telegram_bot_profile() -> None:
+    """Actualiza el nombre y la descripción visibles del bot en Telegram."""
+    if not BOT_TOKEN:
+        return
+    try:
+        telegram_api("setMyName", {"name": "Mi Mascota 3D"})
+        telegram_api("setMyDescription", {
+            "description": "Cuida a tu mascota virtual: dale comida y agua, juega con ella y acompáñala mientras crece."
+        })
+        telegram_api("setMyShortDescription", {
+            "short_description": "Tu mascota virtual 3D. ¡Cuídala cada día!"
+        })
+    except Exception:
+        log.exception("No se pudo actualizar el perfil del bot en Telegram")
+
+
 def set_telegram_webhook() -> None:
     global webhook_ready
     if webhook_ready or not BOT_TOKEN or not PUBLIC_URL:
@@ -445,7 +461,7 @@ def handle_telegram_update(update: dict) -> None:
         if valid and charge_id:
             product_id = order["product_id"]
             deliver_paid_product(payer_id, product_id, charge_id, payload)
-            send_message(message.get("chat", {}).get("id"), "✅ ¡Compra completada! Tu producto ya está disponible en ISLA SALVAJE.")
+            send_message(message.get("chat", {}).get("id"), "✅ ¡Compra completada! Tu producto ya está disponible en Mi Mascota 3D.")
         else:
             log.warning("Pago de Telegram no válido o sin charge_id; payload=%s", payload)
         return
@@ -457,15 +473,16 @@ def handle_telegram_update(update: dict) -> None:
         return
 
     if text.startswith("/start"):
+        set_telegram_bot_profile()
         with store_lock:
             data = load_store()
             get_or_create_player(data, user)
             save_store(data)
         send_message(
             chat_id,
-            "🏝️ ¡Bienvenido a ISLA SALVAJE!\n\n"
-            "Sobrevive, recoge recursos, construye tu refugio y mejora tu equipo.\n"
-            "Pulsa el botón para entrar en la isla.",
+            "🐾 ¡Bienvenido a MI MASCOTA 3D!\n\n"
+            "Cuida de tu mascota, dale comida y agua, juega con ella y acompáñala mientras crece.\n"
+            "¡Tu compañero necesita tus cuidados cada día!",
             mini_app_keyboard(),
         )
     elif text.startswith("/help"):
@@ -475,7 +492,7 @@ def handle_telegram_update(update: dict) -> None:
             "Tu progreso se guarda en un archivo JSON local."
         )
     else:
-        send_message(chat_id, "Pulsa «🌴 JUGAR A ISLA SALVAJE» para continuar.", mini_app_keyboard())
+        send_message(chat_id, "Pulsa «🐾 CUIDAR A MI MASCOTA» para continuar.", mini_app_keyboard())
 
 
 # ----------------------------- AUTENTICACIÓN MINI APP -----------------------------
@@ -1104,7 +1121,7 @@ GAME_HTML = r"""<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#101b19">
-<title>ISLA SALVAJE - Mi Mascota 3D</title>
+<title>Mi Mascota 3D - Tamagotchi</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script async src="https://libtl.com/sdk.js" data-zone="12235771" data-sdk="show_12235771"></script>
 <script>window.ISLA_PAYPAL_CLIENT_ID="__PAYPAL_CLIENT_ID__";</script>
@@ -1142,7 +1159,7 @@ button:active{transform:scale(.97);background:#315b42}button.primary{background:
 <div id="scene"></div>
 <div class="hud">
  <div class="panel">
-  <div class="brand">🐾 MI MASCOTA · ISLA SALVAJE</div>
+  <div class="brand">🐾 MI MASCOTA 3D · TAMAGOTCHI</div>
   <div class="petName" id="petName">Sprout</div>
   <div class="petBadge" id="petAge">👶 Bebé · Día 1</div>
   <div class="petMood" id="petMood">Tu nueva amistad te espera 💖</div>
@@ -1297,7 +1314,7 @@ window.buy=async(product_id)=>{
      if(!result.ok) throw new Error('PayPal no ha confirmado la compra.');
      renderPlayer(result.player);
      status.textContent='¡Pago confirmado! Tu compra ya está en tu inventario.';
-     toast('✅ Compra recibida. ¡Gracias por apoyar ISLA SALVAJE!');
+     toast('✅ Compra recibida. ¡Gracias por apoyar Mi Mascota 3D!');
      setTimeout(()=>{panel.style.display='none';},1800);
     }catch(err){status.textContent=err.message||'No se pudo verificar el pago. Contacta con soporte si PayPal te ha cobrado.';}
    },
@@ -1330,6 +1347,18 @@ async function finishMiniGame(kind){const result=await window.act('mini_game',{g
 
 // Monetag SDK: esperamos a que el script asíncrono esté realmente disponible.
 // La recompensa económica se acredita exclusivamente mediante postback S2S.
+// Espaciado adicional entre anuncios iniciados por el jugador: 15 minutos.
+const AD_COOLDOWN_MS=15*60*1000;
+function adCooldownRemaining(){
+ try{return Math.max(0,AD_COOLDOWN_MS-(Date.now()-Number(localStorage.getItem('mascota_last_ad_at')||0)));}
+ catch(_){return 0;}
+}
+function markAdShown(){try{localStorage.setItem('mascota_last_ad_at',String(Date.now()));}catch(_){}}
+function canShowManualAd(){
+ const remaining=adCooldownRemaining();
+ if(remaining>0){const mins=Math.ceil(remaining/60000);toast('Para que no salgan tan seguidos, espera '+mins+' min para ver otro anuncio.');return false;}
+ return true;
+}
 function waitForMonetag(timeoutMs=15000){
  return new Promise((resolve,reject)=>{
   if(typeof window.show_12235771==='function') return resolve(window.show_12235771);
@@ -1341,19 +1370,23 @@ function waitForMonetag(timeoutMs=15000){
  });
 }
 window.showRewardedAd=async()=>{
+ if(!canShowManualAd())return;
  if(player && Number(player.rewarded_ads_count||0)>=10){toast('Has alcanzado los 10 anuncios recompensados de hoy.');return;}
  try{
   const showAd=await waitForMonetag();
   await Promise.resolve(showAd());
+  markAdShown();
   toast('Anuncio terminado. La recompensa llegará cuando Monetag confirme el postback.');
   setTimeout(()=>load(),4000);
  }catch(e){console.warn('Monetag rewarded:',e);toast('No se pudo mostrar el anuncio: '+(e?.message||'error'));}
 };
 window.showPopupAd=async()=>{
+ if(!canShowManualAd())return;
  if(player && Number(player.rewarded_ads_count||0)>=10){toast('Has alcanzado los 10 anuncios recompensados de hoy.');return;}
  try{
   const showAd=await waitForMonetag();
   await Promise.resolve(showAd('pop'));
+  markAdShown();
   toast('Anuncio solicitado. La recompensa depende de la confirmación de Monetag.');
   setTimeout(()=>load(),4000);
  }catch(e){console.warn('Monetag popup:',e);toast('No se pudo mostrar el anuncio: '+(e?.message||'error'));}
@@ -1361,9 +1394,9 @@ window.showPopupAd=async()=>{
 async function startMonetagInApp(){
  try{
   const showAd=await waitForMonetag();
-  // Ajustes facilitados: 2 anuncios, capping 0.1h (6 min), 30s de intervalo,
-  // 5s de espera inicial y no reiniciar sesión al cambiar de página.
-  await Promise.resolve(showAd({type:'inApp',inAppSettings:{frequency:2,capping:0.1,interval:30,timeout:5,everyPage:false}}));
+  // Frecuencia reducida: máximo 1 anuncio por ciclo, capping de 1 hora,
+  // al menos 10 minutos entre impresiones, 5s de espera inicial y sin repetir por página.
+  await Promise.resolve(showAd({type:'inApp',inAppSettings:{frequency:1,capping:1,interval:600,timeout:5,everyPage:false}}));
   console.info('Monetag In-App Interstitial iniciado.');
  }catch(e){console.warn('Monetag In-App Interstitial:',e);}
 }
