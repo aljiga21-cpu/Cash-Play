@@ -1297,8 +1297,14 @@ button:active{transform:scale(.97);background:#315b42}button.primary{background:
 .memoryGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;max-width:330px;margin:10px auto}.memoryCard{height:58px;font-size:22px;background:#3d3472}
 .sickAlert{display:none;position:fixed;z-index:4;top:125px;left:50%;transform:translateX(-50%);background:#6b2938eF;border:1px solid #ff9cac;border-radius:12px;padding:9px 13px;font-size:12px;max-width:92vw;text-align:center}
 .sheet{width:100%;max-height:78vh;overflow:auto;background:#111f1b;border:1px solid #ffffff22;border-radius:20px 20px 0 0;padding:16px}
-.item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid #ffffff18}
-.item small{display:block;color:#b9c9c0;margin-top:3px}.item button{min-width:95px}
+#shop .sheet{max-width:760px;max-height:92vh;margin:auto;border-radius:20px;padding:16px;overflow-y:auto}
+.vipGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:14px 0}
+.vipCard{min-width:0;overflow:hidden;border:1px solid #ffffff24;border-radius:16px;background:linear-gradient(160deg,#202746,#111b2a);box-shadow:0 8px 22px #0005}
+.vipArt{display:block;width:100%;height:auto;aspect-ratio:1/1;background:#202746}
+.vipInfo{padding:10px;display:flex;flex-direction:column;gap:6px}
+.vipInfo b{font-size:14px}.vipInfo small{font-size:11px;line-height:1.35;color:#c4cee0;min-height:30px}.vipPrice{font-size:12px;color:#ffd76b;font-weight:800}.vipInfo button{width:100%;min-height:40px;background:linear-gradient(135deg,#6753bc,#315a9b)}
+@media(max-width:600px){#shop .sheet{max-height:94vh;padding:12px}.vipGrid{grid-template-columns:1fr;gap:10px}.vipCard{display:grid;grid-template-columns:116px minmax(0,1fr);align-items:stretch}.vipArt{height:100%;min-height:116px;aspect-ratio:auto}.vipInfo{justify-content:center;padding:9px}.vipInfo small{min-height:0}}
+@media(min-width:601px) and (max-width:850px){.vipGrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 #walletPanel input{width:100%;padding:12px;border-radius:9px;border:1px solid #ffffff35;background:#14251f;color:#fff;margin:6px 0}#walletPanel .walletBig{font-size:24px;font-weight:900;color:#9be4ad}#walletPanel .walletNote{font-size:11px;color:#b9c9c0;line-height:1.45}
 #paypalPanel{display:none;margin-top:14px;padding:13px;border:1px solid #ffffff25;border-radius:14px;background:#0b1713}#paypal-button-container{min-height:48px}#paypalStatus{font-size:12px;color:#c9d8cf;margin:8px 0}
 #actionBanner{position:fixed;z-index:3;left:50%;top:47%;transform:translate(-50%,-50%);padding:10px 16px;border-radius:18px;background:rgba(28,38,66,.78);border:1px solid #ffffff55;box-shadow:0 8px 28px #10152b55;color:#fff;font-weight:900;font-size:14px;letter-spacing:.2px;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;backdrop-filter:blur(8px)}#actionBanner.show{opacity:1;transform:translate(-50%,-58%)}
@@ -1358,9 +1364,37 @@ button:active{transform:scale(.97);background:#315b42}button.primary{background:
 <div id="sickAlert" class="sickAlert">🤒 Tu mascota está enferma. Límpiala, aliméntala y dale medicina.</div>
 <div id="shop"><div class="sheet">
  <div style="display:flex;justify-content:space-between;align-items:center"><div><h3>👑 Personajes VIP</h3><p class="sub">Desbloquea criaturas especiales para siempre. La mascota básica es gratuita.</p></div><button onclick="closeShop()">Cerrar ✕</button></div>
- <div class="item"><div><b>🦊 Zorro Aurora VIP</b><small>Pelaje brillante y detalles mágicos · 2,99 €</small></div><button id="buyFox" onclick="buy('vip_fox')">Desbloquear</button></div>
- <div class="item"><div><b>🐉 Dragón Rubí VIP</b><small>Alas, cuernos y escamas rubí · 4,99 €</small></div><button id="buyDragon" onclick="buy('vip_dragon')">Desbloquear</button></div>
- <div class="item"><div><b>🩵 Ajolote Cósmico VIP</b><small>Branquias luminosas y cola acuática · 3,99 €</small></div><button id="buyAxolotl" onclick="buy('vip_axolotl')">Desbloquear</button></div>
+ <div class="vipGrid">
+  <article class="vipCard">
+   <svg class="vipArt" viewBox="0 0 320 320" role="img" aria-label="Zorro Aurora: zorrito naranja con orejas puntiagudas y detalles mágicos">
+    <defs><linearGradient id="foxBg" x2="0" y2="1"><stop stop-color="#59418e"/><stop offset="1" stop-color="#171d3c"/></linearGradient><linearGradient id="foxFur" x2=".8" y2="1"><stop stop-color="#ffd28b"/><stop offset=".55" stop-color="#f58b42"/><stop offset="1" stop-color="#b94d39"/></linearGradient><radialGradient id="foxGlow"><stop stop-color="#d7a8ff" stop-opacity=".8"/><stop offset="1" stop-color="#a26aff" stop-opacity="0"/></radialGradient></defs>
+    <rect width="320" height="320" rx="20" fill="url(#foxBg)"/><circle cx="160" cy="158" r="145" fill="url(#foxGlow)"/>
+    <g fill="#f6d78a"><path d="M48 72l6 15 15 6-15 6-6 15-6-15-15-6 15-6z"/><path d="M267 105l5 12 12 5-12 5-5 12-5-12-12-5 12-5z"/><circle cx="80" cy="180" r="4"/><circle cx="246" cy="54" r="4"/></g>
+    <ellipse cx="160" cy="273" rx="90" ry="19" fill="#0b1028" opacity=".45"/><path d="M211 236q70 1 64-48-4-26-29-20 23 22-9 34-22 8-35-5" fill="none" stroke="#e98545" stroke-width="24" stroke-linecap="round"/><ellipse cx="160" cy="226" rx="68" ry="68" fill="url(#foxFur)"/><ellipse cx="160" cy="245" rx="39" ry="42" fill="#fff0d9"/>
+    <path d="M91 119L80 35q-2-16 13-7l61 61M229 119l11-84q2-16-13-7l-61 61" fill="#e98242" stroke="#9f4938" stroke-width="7" stroke-linejoin="round"/><path d="M100 98L94 55l38 38M220 98l6-43-38 38" fill="#ffc0b0"/>
+    <ellipse cx="160" cy="143" rx="83" ry="78" fill="url(#foxFur)"/><path d="M104 161q-2-53 56-64 58 11 56 64-4 56-56 56-52 0-56-56" fill="#fff0dc"/><ellipse cx="129" cy="143" rx="12" ry="16" fill="#292044"/><ellipse cx="191" cy="143" rx="12" ry="16" fill="#292044"/><circle cx="133" cy="137" r="4" fill="white"/><circle cx="195" cy="137" r="4" fill="white"/><ellipse cx="160" cy="172" rx="15" ry="11" fill="#513044"/><path d="M160 183q-9 13-20 2m20-2q9 13 20 2" fill="none" stroke="#8b4651" stroke-width="4" stroke-linecap="round"/><path d="M160 83q-5-24 16-28 16 19 1 35" fill="#a77bff"/><path d="M160 62l5 13 13 5-13 5-5 13-5-13-13-5 13-5z" fill="#ffe68a"/>
+   </svg>
+   <div class="vipInfo"><b>🦊 Zorro Aurora VIP</b><small>Pelaje naranja brillante, orejas puntiagudas y aura mágica.</small><span class="vipPrice">2,99 € · Para siempre</span><button id="buyFox" onclick="buy('vip_fox')">Desbloquear</button></div>
+  </article>
+  <article class="vipCard">
+   <svg class="vipArt" viewBox="0 0 320 320" role="img" aria-label="Dragón Rubí: pequeño dragón rojo con cuernos y alas">
+    <defs><linearGradient id="dragonBg" x2="0" y2="1"><stop stop-color="#783a45"/><stop offset="1" stop-color="#24172e"/></linearGradient><linearGradient id="dragonSkin" x2=".8" y2="1"><stop stop-color="#ff9272"/><stop offset=".55" stop-color="#c43d50"/><stop offset="1" stop-color="#76243e"/></linearGradient></defs>
+    <rect width="320" height="320" rx="20" fill="url(#dragonBg)"/><g fill="#ffca70"><path d="M50 74l7 17 17 7-17 7-7 17-7-17-17-7 17-7z"/><path d="M267 60l5 12 12 5-12 5-5 12-5-12-12-5 12-5z"/><circle cx="75" cy="174" r="4"/><circle cx="248" cy="205" r="4"/></g>
+    <ellipse cx="160" cy="276" rx="94" ry="18" fill="#160d1c" opacity=".5"/><path d="M112 189Q38 132 45 80q43 12 83 77M208 189q74-57 67-109-43 12-83 77" fill="#8d263f" stroke="#f16b61" stroke-width="7"/><path d="M62 105l47 48-39-12 16 34-36-25M258 105l-47 48 39-12-16 34 36-25" fill="#f4a16d"/>
+    <ellipse cx="160" cy="226" rx="67" ry="65" fill="url(#dragonSkin)"/><ellipse cx="160" cy="245" rx="38" ry="40" fill="#f5bd86"/><path d="M105 110l-16-51q-4-14 12-8l47 39M215 110l16-51q4-14-12-8l-47 39" fill="#e7a44e" stroke="#7d2940" stroke-width="7"/><ellipse cx="160" cy="147" rx="83" ry="75" fill="url(#dragonSkin)"/><path d="M112 165q-3-43 48-50 51 7 48 50-4 45-48 45-44 0-48-45" fill="#f4c08e"/><ellipse cx="130" cy="145" rx="12" ry="16" fill="#321c2c"/><ellipse cx="190" cy="145" rx="12" ry="16" fill="#321c2c"/><circle cx="134" cy="139" r="4" fill="white"/><circle cx="194" cy="139" r="4" fill="white"/><ellipse cx="160" cy="175" rx="15" ry="10" fill="#512536"/><path d="M151 186q9 9 18 0" fill="none" stroke="#8e3545" stroke-width="4" stroke-linecap="round"/><path d="M160 83l8 18 18 8-18 8-8 18-8-18-18-8 18-8z" fill="#ffd76a"/>
+   </svg>
+   <div class="vipInfo"><b>🐉 Dragón Rubí VIP</b><small>Escamas rojas, pequeños cuernos dorados y alas de dragón.</small><span class="vipPrice">4,99 € · Para siempre</span><button id="buyDragon" onclick="buy('vip_dragon')">Desbloquear</button></div>
+  </article>
+  <article class="vipCard">
+   <svg class="vipArt" viewBox="0 0 320 320" role="img" aria-label="Ajolote Cósmico: ajolote azul y violeta con branquias externas">
+    <defs><linearGradient id="axoBg" x2="0" y2="1"><stop stop-color="#245a86"/><stop offset="1" stop-color="#211d4b"/></linearGradient><linearGradient id="axoSkin" x2=".8" y2="1"><stop stop-color="#b4f5ff"/><stop offset=".55" stop-color="#6bbde9"/><stop offset="1" stop-color="#8874dc"/></linearGradient></defs>
+    <rect width="320" height="320" rx="20" fill="url(#axoBg)"/><g fill="#c8efff"><circle cx="54" cy="72" r="4"/><circle cx="267" cy="82" r="5"/><circle cx="76" cy="202" r="3"/><circle cx="246" cy="190" r="4"/><path d="M52 125l5 13 13 5-13 5-5 13-5-13-13-5 13-5z"/><path d="M260 135l5 13 13 5-13 5-5 13-5-13-13-5 13-5z"/></g>
+    <ellipse cx="160" cy="276" rx="92" ry="17" fill="#101433" opacity=".5"/><path d="M215 231q70 25 63-22-5-28-27-13 13 22-15 22-16 0-28-13" fill="none" stroke="#75c9ed" stroke-width="23" stroke-linecap="round"/><ellipse cx="160" cy="228" rx="70" ry="66" fill="url(#axoSkin)"/><ellipse cx="160" cy="247" rx="39" ry="39" fill="#e4f8ff"/>
+    <ellipse cx="160" cy="147" rx="83" ry="75" fill="url(#axoSkin)"/><g stroke="#ff8bc7" stroke-width="10" stroke-linecap="round" fill="none"><path d="M91 132q-39-31-47-4m47 16q-43-5-55 20m55-3q-31 14-36 39M229 132q39-31 47-4m-47 16q43-5 55 20m-55-3q31 14 36 39"/></g><g fill="#ffb0dc"><circle cx="44" cy="128" r="7"/><circle cx="36" cy="164" r="7"/><circle cx="55" cy="202" r="7"/><circle cx="276" cy="128" r="7"/><circle cx="284" cy="164" r="7"/><circle cx="265" cy="202" r="7"/></g><ellipse cx="130" cy="146" rx="12" ry="16" fill="#20335a"/><ellipse cx="190" cy="146" rx="12" ry="16" fill="#20335a"/><circle cx="134" cy="140" r="4" fill="white"/><circle cx="194" cy="140" r="4" fill="white"/><ellipse cx="160" cy="174" rx="14" ry="10" fill="#49618e"/><path d="M148 186q12 10 24 0" fill="none" stroke="#d26aa9" stroke-width="4" stroke-linecap="round"/><path d="M160 82l5 13 13 5-13 5-5 13-5-13-13-5 13-5z" fill="#e9d1ff"/>
+   </svg>
+   <div class="vipInfo"><b>🩵 Ajolote Cósmico VIP</b><small>Piel azul luminosa, branquias rosas y cola acuática.</small><span class="vipPrice">3,99 € · Para siempre</span><button id="buyAxolotl" onclick="buy('vip_axolotl')">Desbloquear</button></div>
+  </article>
+ </div>
  <p class="sub">Los personajes VIP son cosméticos: no dan ventajas ni hacen falta para cuidar y jugar. Pago seguro mediante PayPal.</p>
  <div id="paypalPanel"><div style="display:flex;justify-content:space-between;align-items:center"><b>🔒 Pago seguro con PayPal</b><button onclick="closePaypal()">Cerrar</button></div><p id="paypalStatus">Elige PayPal para completar tu compra.</p><div id="paypal-button-container"></div></div>
  </div></div>
