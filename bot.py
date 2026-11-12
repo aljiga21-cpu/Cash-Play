@@ -140,6 +140,7 @@ def save_store(data: dict) -> None:
 def new_player(user: dict) -> dict:
     return {
         "id": str(user["id"]),
+        "telegram_chat_id": str(user["id"]),
         "username": user.get("username", ""),
         "first_name": user.get("first_name", "Superviviente"),
         "created_at": utc_now(),
@@ -197,6 +198,8 @@ def get_or_create_player(data: dict, user: dict) -> dict:
     if uid not in data["players"]:
         data["players"][uid] = new_player(user)
     player = data["players"][uid]
+    player.setdefault("telegram_chat_id", uid)
+    player.setdefault("pet_alert_last_sent", {})
     player.setdefault("redeemable_coins", 0)
     player.setdefault("rewarded_ads_date", "")
     player.setdefault("rewarded_ads_count", 0)
@@ -372,6 +375,146 @@ def send_message(chat_id: int | str, text: str, reply_markup: dict | None = None
     telegram_api("sendMessage", payload)
 
 
+def pet_status_text(player: dict, include_details: bool = True) -> str:
+    """Resume el ánimo y las necesidades actuales de la mascota para Telegram."""
+    if player.get("pet_dead"):
+        mood = "🕊️ Ha fallecido"
+        mood_line = "Tu mascota ya no está contigo. Puedes adoptar otra desde el juego."
+    elif player.get("pet_sick") or float(player.get("pet_health", 100)) < 40:
+        mood = "🤒 Se encuentra mal"
+        mood_line = "Necesita medicina y cuidados."
+    elif float(player.get("pet_happiness", 100)) < 30:
+        mood = "😢 Triste"
+        mood_line = "Necesita cariño y jugar un rato."
+    elif float(player.get("pet_happiness", 100)) < 55:
+        mood = "😕 Algo apagada"
+        mood_line = "Un poco de atención le vendrá bien."
+    elif float(player.get("pet_happiness", 100)) >= 78:
+        mood = "😊 Muy feliz"
+        mood_line = "Está contenta y disfruta de tu compañía."
+    else:
+        mood = "🙂 Bien"
+        mood_line = "Está tranquila."
+
+    needs = []
+    if float(player.get("pet_hunger", 100)) < 35:
+        needs.append("🍖 Tiene hambre: dale comida")
+    if float(player.get("pet_thirst", 100)) < 35:
+        needs.append("💧 Tiene sed: dale agua")
+    if float(player.get("pet_cleanliness", 100)) < 35:
+        needs.append("🧼 Necesita un baño")
+    if float(player.get("pet_energy", 100)) < 22:
+        needs.append("😴 Está cansada: déjala dormir")
+    if float(player.get("pet_happiness", 100)) < 38:
+        needs.append("🎾 Está aburrida: juega con ella")
+    if int(player.get("pet_poop", 0)) > 0:
+        needs.append("💩 Hay que limpiar sus necesidades")
+    if player.get("pet_sick"):
+        needs.append("💊 Está enferma: necesita medicina")
+    if float(player.get("pet_health", 100)) < 55 and not player.get("pet_dead"):
+        needs.append("❤️ Su salud está baja")
+
+    lines = ["🐾 ESTADO DE MI MASCOTA 3D", "", f"Ánimo: {mood}", mood_line]
+    if needs:
+        lines.extend(["", "📌 Necesita:", *[f"• {item}" for item in needs]])
+    else:
+        lines.extend(["", "✨ Ahora mismo no necesita nada urgente."])
+    if include_details:
+        lines.extend([
+            "",
+            f"🍖 Hambre: {round(float(player.get('pet_hunger', 100)))}%",
+            f"💧 Sed: {round(float(player.get('pet_thirst', 100)))}%",
+            f"😊 Felicidad: {round(float(player.get('pet_happiness', 100)))}%",
+            f"🧼 Limpieza: {round(float(player.get('pet_cleanliness', 100)))}%",
+            f"⚡ Energía: {round(float(player.get('pet_energy', 100)))}%",
+            f"❤️ Salud: {round(float(player.get('pet_health', 100)))}%",
+        ])
+    return "\n".join(lines)
+
+
+def pet_alerts_for(player: dict) -> dict:
+    """Devuelve las necesidades que merecen un aviso, evitando mensajes por detalles leves."""
+    alerts = {}
+    if player.get("pet_dead"):
+        alerts["dead"] = "🕊️ Tu mascota ha fallecido. Entra al juego si quieres adoptar otra."
+        return alerts
+    if player.get("pet_sick"):
+        alerts["sick"] = "🤒 Tu mascota está enferma. Necesita medicina y cuidados cuanto antes."
+    if float(player.get("pet_thirst", 100)) < 25:
+        alerts["thirst"] = "💧 ¡Tu mascota tiene mucha sed! Entra a Mi Mascota 3D y dale agua."
+    if float(player.get("pet_hunger", 100)) < 25:
+        alerts["hunger"] = "🍖 ¡Tu mascota tiene mucha hambre! Entra a Mi Mascota 3D y dale comida."
+    if float(player.get("pet_health", 100)) < 40:
+        alerts["health"] = "❤️ La salud de tu mascota está baja. Necesita atención."
+    if float(player.get("pet_cleanliness", 100)) < 22:
+        alerts["clean"] = "🧼 Tu mascota necesita que la limpies. ¡Se está ensuciando mucho!"
+    if float(player.get("pet_energy", 100)) < 15:
+        alerts["sleep"] = "😴 Tu mascota está agotada. Déjala dormir un rato."
+    if float(player.get("pet_happiness", 100)) < 22:
+        alerts["sad"] = "🥺 Tu mascota está triste y aburrida. Necesita jugar y recibir cariño."
+    if int(player.get("pet_poop", 0)) >= 2:
+        alerts["poop"] = "💩 Se han acumulado sus necesidades. Entra a limpiarlas para evitar que enferme."
+    return alerts
+
+
+_pet_monitor_lock = threading.Lock()
+_pet_monitor_started = False
+
+
+def pet_notification_loop() -> None:
+    """Comprueba necesidades cada cinco minutos y avisa por Telegram sin saturar."""
+    while True:
+        time.sleep(300)
+        try:
+            now = time.time()
+            with store_lock:
+                data = load_store()
+                changed = False
+                for uid, stored_player in data.get("players", {}).items():
+                    if not isinstance(stored_player, dict):
+                        continue
+                    player = get_or_create_player(data, {
+                        "id": uid,
+                        "username": stored_player.get("username", ""),
+                        "first_name": stored_player.get("first_name", "Amigo"),
+                    })
+                    chat_id = player.get("telegram_chat_id") or uid
+                    active_alerts = pet_alerts_for(player)
+                    sent_map = player.setdefault("pet_alert_last_sent", {})
+                    ready = [
+                        (key, message) for key, message in active_alerts.items()
+                        if now - float(sent_map.get(key, 0) or 0) >= 6 * 3600
+                    ]
+                    if not ready or not chat_id:
+                        continue
+                    message = "🐾 Tu mascota te necesita:\n\n" + "\n".join(text for _, text in ready)
+                    try:
+                        send_message(chat_id, message)
+                        for key, _ in ready:
+                            sent_map[key] = now
+                        changed = True
+                        log.info("Aviso de mascota enviado a Telegram para jugador %s", uid)
+                    except Exception:
+                        log.exception("No se pudo enviar el aviso de mascota a %s", uid)
+                if changed:
+                    save_store(data)
+        except Exception:
+            log.exception("Error en el monitor de necesidades de mascotas")
+
+
+def start_pet_notification_monitor() -> None:
+    global _pet_monitor_started
+    if _pet_monitor_started:
+        return
+    with _pet_monitor_lock:
+        if _pet_monitor_started:
+            return
+        thread = threading.Thread(target=pet_notification_loop, name="pet-notifications", daemon=True)
+        thread.start()
+        _pet_monitor_started = True
+        log.info("Monitor de avisos de mascotas iniciado (cada 5 minutos)")
+
+
 def mini_app_keyboard() -> dict:
     if not PUBLIC_URL:
         return {"keyboard": [[{"text": "El juego aún no está configurado"}]], "resize_keyboard": True}
@@ -476,20 +619,29 @@ def handle_telegram_update(update: dict) -> None:
         set_telegram_bot_profile()
         with store_lock:
             data = load_store()
-            get_or_create_player(data, user)
+            player = get_or_create_player(data, user)
+            player["telegram_chat_id"] = str(chat_id)
             save_store(data)
         send_message(
             chat_id,
             "🐾 ¡Bienvenido a MI MASCOTA 3D!\n\n"
             "Cuida de tu mascota, dale comida y agua, juega con ella y acompáñala mientras crece.\n"
-            "¡Tu compañero necesita tus cuidados cada día!",
+            "También te escribiré por Telegram cuando tenga una necesidad importante.\n\n"
+            + pet_status_text(player),
             mini_app_keyboard(),
         )
+    elif text.startswith("/estado") or text.startswith("/status"):
+        with store_lock:
+            data = load_store()
+            player = get_or_create_player(data, user)
+            player["telegram_chat_id"] = str(chat_id)
+            save_store(data)
+        send_message(chat_id, pet_status_text(player), mini_app_keyboard())
     elif text.startswith("/help"):
         send_message(
             chat_id,
-            "Comandos disponibles:\n/start - Abrir el juego\n/help - Ayuda\n"
-            "Tu progreso se guarda en un archivo JSON local."
+            "Comandos disponibles:\n/start - Abrir el juego\n/estado - Ver ánimo y necesidades\n/help - Ayuda\n\n"
+            "Te avisaré automáticamente por Telegram cuando tu mascota necesite cuidados importantes."
         )
     else:
         send_message(chat_id, "Pulsa «🐾 CUIDAR A MI MASCOTA» para continuar.", mini_app_keyboard())
@@ -1774,6 +1926,7 @@ def telegram_webhook():
 
 @app.before_request
 def ensure_webhook():
+    start_pet_notification_monitor()
     if request.path != "/telegram/webhook":
         set_telegram_webhook()
 
