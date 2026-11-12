@@ -1720,7 +1720,7 @@ function animate(){
  else if(reaction==='clean_pet'){playerMesh.scale.setScalar(petGrowthScale*(1+Math.sin(reactTime*18)*.035));headPivot.rotation.z=Math.sin(reactTime*10)*.12;arms[0].rotation.z=Math.sin(t*12)*.48;arms[1].rotation.z=-Math.sin(t*12)*.48;}
  else if(reaction==='sleep_pet'){playerMesh.scale.set(petGrowthScale*.98,petGrowthScale*.78,petGrowthScale);playerMesh.position.y=.02;headPivot.rotation.x=.38;ears[0].rotation.z=-.65;ears[1].rotation.z=.65;}
  else if(reaction==='give_medicine'){headPivot.rotation.x=.22+Math.sin(t*7)*.04;arms[0].rotation.z=-.28;arms[1].rotation.z=.28;}
- else if(player.userData?.pet_sick||player?.pet_sick){headPivot.rotation.x=.25;headPivot.rotation.z=.07;ears[0].rotation.z=-.62;ears[1].rotation.z=.62;playerMesh.scale.lerp(new THREE.Vector3(petGrowthScale*.98,petGrowthScale*.96,petGrowthScale),.08);}
+ else if(player?.userData?.pet_sick||player?.pet_sick){headPivot.rotation.x=.25;headPivot.rotation.z=.07;ears[0].rotation.z=-.62;ears[1].rotation.z=.62;playerMesh.scale.lerp(new THREE.Vector3(petGrowthScale*.98,petGrowthScale*.96,petGrowthScale),.08);}
  else{playerMesh.scale.lerp(new THREE.Vector3(petGrowthScale,petGrowthScale,petGrowthScale),.12);arms[0].rotation.z*=.82;arms[1].rotation.z*=.82;} 
  camera.position.x=playerMesh.position.x+Math.sin(cameraAngle)*7.4;
  camera.position.z=playerMesh.position.z+Math.cos(cameraAngle)*7.4;
