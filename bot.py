@@ -1149,6 +1149,7 @@ button:active{transform:scale(.97);background:#315b42}button.primary{background:
 .item small{display:block;color:#b9c9c0;margin-top:3px}.item button{min-width:95px}
 #walletPanel input{width:100%;padding:12px;border-radius:9px;border:1px solid #ffffff35;background:#14251f;color:#fff;margin:6px 0}#walletPanel .walletBig{font-size:24px;font-weight:900;color:#9be4ad}#walletPanel .walletNote{font-size:11px;color:#b9c9c0;line-height:1.45}
 #paypalPanel{display:none;margin-top:14px;padding:13px;border:1px solid #ffffff25;border-radius:14px;background:#0b1713}#paypal-button-container{min-height:48px}#paypalStatus{font-size:12px;color:#c9d8cf;margin:8px 0}
+#actionBanner{position:fixed;z-index:3;left:50%;top:47%;transform:translate(-50%,-50%);padding:10px 16px;border-radius:18px;background:rgba(28,38,66,.78);border:1px solid #ffffff55;box-shadow:0 8px 28px #10152b55;color:#fff;font-weight:900;font-size:14px;letter-spacing:.2px;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;backdrop-filter:blur(8px)}#actionBanner.show{opacity:1;transform:translate(-50%,-58%)}
 #hint{position:fixed;z-index:2;left:50%;bottom:104px;transform:translateX(-50%);background:#07120f99;padding:7px 12px;border-radius:20px;font-size:11px;color:#e5eee8;white-space:nowrap;pointer-events:none;max-width:90vw;overflow:hidden;text-overflow:ellipsis}
 @media(max-width:600px){.hud{left:7px;right:7px;top:7px;gap:6px}.panel{padding:8px}.petStats{min-width:145px;font-size:10px}.petName{font-size:15px}.petActions{gap:5px;bottom:max(8px,env(safe-area-inset-bottom));width:98vw}.petActions button{min-width:76px;min-height:38px;padding:8px 5px;font-size:10px}#hint{bottom:104px;font-size:10px}.gameChoices{grid-template-columns:1fr}.gameChoices button{min-height:52px}.gameSheet{max-height:88vh;padding:13px}.sickAlert{top:118px;font-size:11px}}
 @media(min-width:700px){#hint{bottom:94px}.hud{max-width:900px;left:50%;right:auto;transform:translateX(-50%);width:calc(100% - 24px)}.petActions{bottom:22px}}
@@ -1174,7 +1175,8 @@ button:active{transform:scale(.97);background:#315b42}button.primary{background:
   <div>⚡ Energía <b id="petEnergyText">90%</b><div class="meter"><i id="petEnergyBar"></i></div></div>
  </div>
 </div>
-<div id="hint">Cuida de tu mascota, juega con ella y descubre sus reacciones ✨</div>
+<div id="hint">Bienvenido a su hogar 🏡</div>
+<div id="actionBanner" aria-live="polite"></div>
 <div id="toast"></div>
 <div class="petActions">
  <button class="primary" onclick="openFeedMenu()">🍓 Dar de comer</button>
@@ -1232,12 +1234,14 @@ function renderPlayer(p){
  for(const [field,id] of petFields){const v=Math.round(Number(p[field]??0));document.getElementById(id+'Text').textContent=v+'%';document.getElementById(id+'Bar').style.width=v+'%';}
  const mood=p.pet_sick?'No se encuentra bien. Necesita cuidados 🤒':p.pet_happiness>75?'¡Está encantada de verte! 💖':p.pet_happiness>40?'Quiere jugar contigo 🥰':'Necesita un poco de cariño 🥺';
  document.getElementById('petMood').textContent=mood;
+ const hint=document.getElementById('hint');if(hint)hint.textContent=p.pet_dead?'Descansa en paz 💖':p.pet_sick?'Está enferma: necesita medicina y cuidados 🤒':Number(p.pet_cleanliness)<42?'Necesita un baño y un buen cepillado 🫧':'Su hogar está listo: juega, dale comida y mimos 🏡';
  const sick=document.getElementById('sickAlert');if(sick)sick.style.display=p.pet_sick?'block':'none';
  const dead=document.getElementById('deadOverlay');if(dead)dead.style.display=p.pet_dead?'flex':'none';
  const poop=Number(p.pet_poop||0),medicine=Number(p.pet_medicine||0);
  for(const id of ['poopCount','poopCountTop']){const el=document.getElementById(id);if(el)el.textContent=poop;}
  for(const id of ['medicineCount','medicineCountTop']){const el=document.getElementById(id);if(el)el.textContent=medicine;}
  if(typeof syncPoopVisuals==='function')syncPoopVisuals(poop);
+ if(typeof syncPetConditionVisuals==='function')syncPetConditionVisuals(p);
  document.getElementById('petName').textContent=({sprout:'Sprout',aurora_fox:'Zorro Aurora',ruby_dragon:'Dragón Rubí',cosmic_axolotl:'Ajolote Cósmico'})[p.active_character||'sprout']||'Sprout';
  const ageDays=Math.max(0,Number(p.pet_age_days||0));
  const stage=p.pet_growth_stage||'Bebé';
@@ -1546,6 +1550,66 @@ part(tailPivot,new THREE.SphereGeometry(.23,20,16),accentMat,[0,.38,-.78],[1.0,1
 // Mejillas y pequeños detalles luminosos
 for(const side of [-1,1]){part(headPivot,new THREE.SphereGeometry(.045,12,10),shineMat,[side*.53,.02,.72]);}
 scene.add(playerMesh);
+// ---------------- HOGAR 3D DE LA MASCOTA ----------------
+// Ocultamos el antiguo escenario de supervivencia y construimos un hogar cálido y legible.
+for(const oldObj of [ground,grass,garden,sand,water,riverBed,river,riverBanks,cloudGroup,rain,moon,stars]){if(oldObj)oldObj.visible=false;}
+for(const obj of resourceMeshes.values())obj.visible=false;
+scene.background=new THREE.Color(0xb9d9ec);scene.fog=new THREE.Fog(0xb9d9ec,24,55);
+sun.color.setHex(0xffedcf);sun.intensity=1.65;hemi.intensity=1.45;
+const home=new THREE.Group();scene.add(home);
+const mat=(color,roughness=0.82,metalness=0)=>new THREE.MeshStandardMaterial({color,roughness,metalness});
+function homeBox(w,h,d,color,x,y,z,round=false){const g=round?new THREE.BoxGeometry(w,h,d):new THREE.BoxGeometry(w,h,d);const m=new THREE.Mesh(g,mat(color));m.position.set(x,y,z);m.castShadow=true;m.receiveShadow=true;home.add(m);return m;}
+// Suelo de madera clara y alfombra central.
+const homeFloor=new THREE.Mesh(new THREE.PlaneGeometry(20,20),mat(0xd8bd9b));homeFloor.rotation.x=-Math.PI/2;homeFloor.position.y=-.035;homeFloor.receiveShadow=true;home.add(homeFloor);
+for(let z=-8;z<=8;z+=1.25){const seam=new THREE.Mesh(new THREE.BoxGeometry(19.8,.012,.018),mat(0xb99672));seam.position.set(0,.008,z);home.add(seam);}
+const rug=new THREE.Mesh(new THREE.CylinderGeometry(4.3,4.3,.055,64),mat(0x9eaccf));rug.position.set(0,.015,-.1);rug.scale.z=.76;rug.receiveShadow=true;home.add(rug);
+const rugInner=new THREE.Mesh(new THREE.CylinderGeometry(3.5,3.5,.018,64),mat(0xc7b9dc));rugInner.position.set(0,.05,-.1);rugInner.scale.z=.76;home.add(rugInner);
+// Pared del fondo, zócalos y paredes laterales para que parezca una habitación real.
+const backWall=homeBox(20,8,.35,0xf3dfd0,0,4,-8.6);backWall.receiveShadow=true;
+homeBox(20,.28,.42,0xb58d75,0,.18,-8.34);
+homeBox(.28,8,17,0xead6c8,-9.85,4,0);homeBox(.28,8,17,0xead6c8,9.85,4,0);
+// Ventana grande con cielo y jardín al otro lado.
+const windowGlass=homeBox(6.4,3.5,.10,0x9dd4e8,0,5.1,-8.37);windowGlass.material=mat(0x9ed7ec,.25,.05);windowGlass.material.emissive.setHex(0x31536a);windowGlass.material.emissiveIntensity=.18;
+for(const x of [-3.35,3.35])homeBox(.18,3.85,.2,0xffffff,x,5.1,-8.25);
+for(const y of [3.2,7])homeBox(6.85,.18,.2,0xffffff,0,y,-8.25);
+homeBox(.13,3.5,.22,0xffffff,0,5.1,-8.22);homeBox(6.4,.13,.22,0xffffff,0,5.1,-8.22);
+// Sol decorativo y nubes vistas a través de la ventana.
+const windowSun=new THREE.Mesh(new THREE.CircleGeometry(.55,32),mat(0xffdf91));windowSun.position.set(2.15,6.0,-8.28);home.add(windowSun);
+for(let i=0;i<4;i++){const cloudPuff=new THREE.Mesh(new THREE.SphereGeometry(.34+i%2*.1,12,10),mat(0xf7fbff));cloudPuff.position.set(-2.3+i*1.1,4.6+(i%2)*.3,-8.27);cloudPuff.scale.y=.55;home.add(cloudPuff);}
+// Cama acolchada a la izquierda.
+const bed=new THREE.Group();bed.position.set(-3.0,0,-1.85);home.add(bed);
+const bedBase=new THREE.Mesh(new THREE.BoxGeometry(2.35,.32,1.65),mat(0x8c6f9f));bedBase.position.y=.22;bed.add(bedBase);
+const bedMattress=new THREE.Mesh(new THREE.BoxGeometry(2.15,.25,1.45),mat(0xf2c5d8));bedMattress.position.set(0,.48,0);bed.add(bedMattress);
+const bedPillow=new THREE.Mesh(new THREE.SphereGeometry(.43,18,12),mat(0xfff0df));bedPillow.position.set(0,.68,-.42);bedPillow.scale.set(1.25,.28,.7);bed.add(bedPillow);
+for(const x of [-.95,.95]){const post=new THREE.Mesh(new THREE.SphereGeometry(.13,12,10),mat(0xc9a6dc));post.position.set(x,.58,.66);bed.add(post);}
+// Comedero y bebedero, con comida y agua visibles.
+const bowlMat=mat(0xffb66f,.35),waterMat=new THREE.MeshPhysicalMaterial({color:0x69c9ed,roughness:.12,metalness:.05,transparent:true,opacity:.82,clearcoat:1});
+function makeBowl(x,z,isWater){const g=new THREE.Group();g.position.set(x,0,z);home.add(g);const base=new THREE.Mesh(new THREE.CylinderGeometry(.53,.43,.22,32),bowlMat);base.position.y=.16;g.add(base);const inner=new THREE.Mesh(new THREE.CylinderGeometry(.43,.38,.045,32),isWater?waterMat:mat(0xb77b45));inner.position.y=.285;g.add(inner);const rim=new THREE.Mesh(new THREE.TorusGeometry(.46,.055,8,32),mat(0xffe4c2));rim.rotation.x=Math.PI/2;rim.position.y=.28;g.add(rim);if(!isWater){for(let i=0;i<9;i++){const pellet=new THREE.Mesh(new THREE.SphereGeometry(.065,8,6),mat(0x9a5b32));const a=i*Math.PI*2/9;pellet.position.set(Math.cos(a)*(.12+(i%2)*.12),.34,Math.sin(a)*(.12+(i%2)*.12));g.add(pellet);}}return g;}
+const foodBowl=makeBowl(-1.75,1.45,false),waterBowl=makeBowl(-.15,1.75,true);
+// Bañera con agua azul, patas y ducha superior.
+const bath=new THREE.Group();bath.position.set(3.15,0,-1.45);home.add(bath);
+const bathBody=new THREE.Mesh(new THREE.BoxGeometry(2.35,.72,1.65),mat(0xf6f5f0,.35));bathBody.position.y=.48;bath.add(bathBody);
+const bathWater=new THREE.Mesh(new THREE.BoxGeometry(2.05,.08,1.36),waterMat);bathWater.position.y=.86;bath.add(bathWater);
+for(const x of [-.85,.85])for(const z of [-.55,.55]){const leg=new THREE.Mesh(new THREE.CylinderGeometry(.09,.12,.42,10),mat(0xc4cbd4,.35,.4));leg.position.set(x,.18,z);bath.add(leg);}
+const showerPipe=new THREE.Mesh(new THREE.CylinderGeometry(.055,.055,1.45,12),mat(0xd8e0e8,.25,.65));showerPipe.position.set(.88,1.75,-.52);bath.add(showerPipe);
+const showerHead=new THREE.Mesh(new THREE.CylinderGeometry(.25,.19,.12,20),mat(0xcbd7e4,.25,.6));showerHead.rotation.x=Math.PI/2;showerHead.position.set(.88,2.48,-.52);bath.add(showerHead);
+// Juguetes, estantería, plantas y luz ambiental.
+const toy=new THREE.Group();toy.position.set(2.45,0,1.65);home.add(toy);const toyBall=new THREE.Mesh(new THREE.SphereGeometry(.34,24,18),mat(0xff86b7,.28));toyBall.position.y=.38;toy.add(toyBall);for(let i=0;i<3;i++){const stripe=new THREE.Mesh(new THREE.TorusGeometry(.345,.025,6,32),mat([0xffe48c,0x8de4d1,0xffffff][i]));stripe.rotation.x=Math.PI/2;stripe.rotation.y=i*.8;stripe.position.y=.38;toy.add(stripe);}
+const shelf=homeBox(3.4,.18,.55,0xb68c6d,5.7,3.0,-7.95);homeBox(.16,1.5,.5,0x9d765b,4.1,3.7,-7.95);homeBox(.16,1.5,.5,0x9d765b,7.3,3.7,-7.95);
+for(let i=0;i<3;i++){const pot=new THREE.Mesh(new THREE.CylinderGeometry(.22,.28,.38,12),mat(0xd68f83));pot.position.set(-7.4+i*.8,.19,-6.9);home.add(pot);const leaf=new THREE.Mesh(new THREE.SphereGeometry(.45,12,10),mat(0x5d9e75));leaf.position.set(-7.4+i*.8,.72,-6.9);leaf.scale.set(.65,1.2,.65);home.add(leaf);}
+const warmLight=new THREE.PointLight(0xffd6a1,34,14);warmLight.position.set(-4.8,5.8,1);home.add(warmLight);
+const activityFx=new THREE.Group();scene.add(activityFx);const foamMat=new THREE.MeshStandardMaterial({color:0xffffff,transparent:true,opacity:.85,roughness:.35});
+const foamBubbles=[];for(let i=0;i<18;i++){const bubble=new THREE.Mesh(new THREE.SphereGeometry(.09+(i%3)*.035,10,8),foamMat);bubble.visible=false;activityFx.add(bubble);foamBubbles.push(bubble);}
+const showerDrops=[];const dropMat=new THREE.MeshStandardMaterial({color:0x9fe7ff,transparent:true,opacity:.8,roughness:.15});for(let i=0;i<22;i++){const drop=new THREE.Mesh(new THREE.SphereGeometry(.035+(i%3)*.012,8,6),dropMat);drop.visible=false;activityFx.add(drop);showerDrops.push(drop);}
+const dirtySpots=new THREE.Group();playerMesh.add(dirtySpots);
+for(let i=0;i<9;i++){const spot=new THREE.Mesh(new THREE.SphereGeometry(.075+(i%3)*.025,10,8),mat(0x8a674a));spot.position.set((i%3-1)*.35,.78+Math.floor(i/3)*.22,.64);spot.scale.set(1,.65,.35);dirtySpots.add(spot);}
+const sickMark=new THREE.Group();playerMesh.add(sickMark);
+const crossMat=new THREE.MeshStandardMaterial({color:0xff526a,emissive:0x7b1024,emissiveIntensity:.45});
+const crossA=new THREE.Mesh(new THREE.BoxGeometry(.12,.58,.10),crossMat),crossB=new THREE.Mesh(new THREE.BoxGeometry(.58,.12,.10),crossMat);crossA.position.y=3.1;crossB.position.y=3.1;sickMark.add(crossA,crossB);
+function syncPetConditionVisuals(p){
+ const dirty=Number(p.pet_cleanliness??100)<42;dirtySpots.visible=dirty;sickMark.visible=!!p.pet_sick;
+ if(p.pet_dead){dirtySpots.visible=false;sickMark.visible=false;}
+}
 const poopVisuals=new THREE.Group();scene.add(poopVisuals);
 function syncPoopVisuals(count){
  while(poopVisuals.children.length>count*3){const m=poopVisuals.children[poopVisuals.children.length-1];poopVisuals.remove(m);m.geometry.dispose();m.material.dispose();}
@@ -1565,7 +1629,18 @@ function applyPetCharacter(id){
   for(const side of [-1,1])for(let j=0;j<3;j++){const gill=part(vipExtras,new THREE.ConeGeometry(.09,.34,7),accentMat,[side*(.58+j*.07),.05-j*.13,.03]);gill.rotation.z=side*(.9+j*.12);}
  }
 }
-function petReact(action){const now=performance.now();playerMesh.userData.reactUntil=now+2600;playerMesh.userData.react=action;playerMesh.userData.reactStarted=now;}
+function petReact(action){
+ const now=performance.now();
+ const durations={feed_kibble:4200,feed_fruit:4200,feed_fish:4500,give_water:3600,clean_pet:5200,play_pet:3600,mini_game:4200,sleep_pet:5000,give_medicine:3800,adopt_pet:3000};
+ const duration=durations[action]||3000;
+ playerMesh.userData.reactUntil=now+duration;
+ playerMesh.userData.react=action;playerMesh.userData.reactStarted=now;playerMesh.userData.reactDuration=duration*.001;
+ playerMesh.userData.actionOrigin=new THREE.Vector3(playerMesh.position.x,0,playerMesh.position.z);
+ const destinations={feed_kibble:[-1.75,1.05],feed_fruit:[-1.75,1.05],feed_fish:[-1.75,1.05],give_water:[-.15,1.35],clean_pet:[3.15,-1.45],sleep_pet:[-3,-1.85],play_pet:[2.45,1.65],mini_game:[2.45,1.65],give_medicine:[0,.65]};
+ const dest=destinations[action]||[playerMesh.position.x,playerMesh.position.z];playerMesh.userData.actionTarget=new THREE.Vector3(dest[0],0,dest[1]);
+ const labels={feed_kibble:'🥣 ¡Ñam, ñam! Comiendo pienso',feed_fruit:'🍎 ¡Qué rica fruta!',feed_fish:'🐟 ¡Su comida favorita!',give_water:'💧 Glup, glup… bebiendo agua',clean_pet:'🫧 ¡Hora del baño! Chapoteando',play_pet:'🎾 ¡A jugar!',mini_game:'⭐ ¡Lo está pasando genial!',sleep_pet:'🌙 A descansar calentito',give_medicine:'💊 Tomando su medicina',adopt_pet:'💖 ¡Un nuevo comienzo!'};
+ const banner=document.getElementById('actionBanner');if(banner){banner.textContent=labels[action]||'🐾 ¡Qué bien!';banner.classList.add('show');clearTimeout(window.petBannerTimer);window.petBannerTimer=setTimeout(()=>banner.classList.remove('show'),durations[action]||3000);}
+}
 // Acciones de mascota: las herramientas de supervivencia se retiran del modelo.
 const toolGroup=new THREE.Group();arms[1].add(toolGroup);toolGroup.visible=false;
 const spearGroup=new THREE.Group();arms[1].add(spearGroup);spearGroup.visible=false;
@@ -1593,10 +1668,10 @@ function animate(){
  dayFactor=(Math.sin(dayPhase-Math.PI/2)+1)/2;
  const daylight=Math.max(.055,dayFactor);
  sun.position.set(Math.cos(dayPhase)*38,Math.max(-5,Math.sin(dayPhase)*42),18);
- sun.intensity=.12+daylight*2.8;
- sun.color.set(dayFactor>.22?0xffe4b5:0x9bbcff);
- hemi.intensity=.28+daylight*1.75;
- scene.background.set(dayFactor>.2?0x9dc4c4:0x101d35);
+ sun.intensity=.75+daylight*1.25;
+ sun.color.set(dayFactor>.22?0xffe4b5:0xbac9ed);
+ hemi.intensity=.9+daylight*.8;
+ scene.background.set(dayFactor>.2?0xb9d9ec:0x778aa8);
  scene.fog.color.copy(scene.background);
  moon.visible=dayFactor<.42;stars.material.opacity=THREE.MathUtils.clamp((.42-dayFactor)*2.8,0,1);
  cloudGroup.visible=true;
@@ -1631,11 +1706,21 @@ function animate(){
  ears[0].rotation.z=-.18+Math.sin(t*2.4)*.08;ears[1].rotation.z=.18-Math.sin(t*2.4)*.08;tailPivot.rotation.x=Math.sin(t*2.8)*.22;tailPivot.rotation.z=Math.sin(t*1.8)*.18;
  const reaction=playerMesh.userData.reactUntil>now?playerMesh.userData.react:null;
  const reactTime=(now-(playerMesh.userData.reactStarted||now))*.001;
+ // La mascota camina hasta el objeto de la acción y vuelve a su alfombra.
+ if(reaction&&playerMesh.userData.actionOrigin&&playerMesh.userData.actionTarget){const total=playerMesh.userData.reactDuration||3;const approach=.82,returnAt=Math.max(approach,total-.78);let f=reactTime<approach?THREE.MathUtils.smoothstep(reactTime,0,approach):reactTime>returnAt?1-THREE.MathUtils.smoothstep(reactTime,returnAt,total):1;playerMesh.position.x=THREE.MathUtils.lerp(playerMesh.userData.actionOrigin.x,playerMesh.userData.actionTarget.x,f);playerMesh.position.z=THREE.MathUtils.lerp(playerMesh.userData.actionOrigin.z,playerMesh.userData.actionTarget.z,f);const dx=playerMesh.userData.actionTarget.x-playerMesh.userData.actionOrigin.x,dz=playerMesh.userData.actionTarget.z-playerMesh.userData.actionOrigin.z;if(Math.abs(dx)+Math.abs(dz)>.1)playerMesh.rotation.y=Math.atan2(dx,dz);}else if(!reaction&&playerMesh.userData.actionOrigin){playerMesh.userData.actionOrigin=null;playerMesh.userData.actionTarget=null;}
+ // Burbujas y espuma aparecen durante el baño; el agua de la bañera cobra vida.
+ const bathing=reaction==='clean_pet';bathWater.position.y=.86+(bathing?Math.sin(t*5)*.035:0);bathWater.material.opacity=bathing?.92:.82;
+ for(let i=0;i<foamBubbles.length;i++){const b=foamBubbles[i];b.visible=bathing;if(bathing){const a=t*2+i*2.4;b.position.set(3.15+Math.cos(a)*(.45+(i%3)*.18),.9+((t*1.1+i*.19)%1.15),-1.45+Math.sin(a)*(.35+(i%2)*.2));b.scale.setScalar(.7+Math.sin(t*5+i)*.22);}}
+ for(let i=0;i<showerDrops.length;i++){const d=showerDrops[i];d.visible=bathing;if(bathing){d.position.set(3.15+Math.sin(i*12.7)*.42,1.05+((2.2-t*2.5-i*.09)%1.25),-1.55+Math.cos(i*8.2)*.38);}}
+ toyBall.position.y=.38+(reaction==='play_pet'||reaction==='mini_game'?Math.abs(Math.sin(t*9))*.75:Math.sin(t*2)*.035);toy.rotation.z=reaction==='play_pet'||reaction==='mini_game'?Math.sin(t*8)*.32:Math.sin(t)*.04;
+ foodBowl.rotation.z=(reaction&&reaction.startsWith('feed_'))?Math.sin(reactTime*8)*.05:0;waterBowl.rotation.z=reaction==='give_water'?Math.sin(reactTime*7)*.035:0;
  if(reaction==='play_pet'||reaction==='mini_game'){playerMesh.scale.setScalar(petGrowthScale*(1+Math.max(0,Math.sin(t*15))*.16));arms[0].rotation.z=Math.sin(t*15)*.72;arms[1].rotation.z=-Math.sin(t*15)*.72;legs[0].rotation.x=Math.sin(t*15)*.65;legs[1].rotation.x=-Math.sin(t*15)*.65;}
- else if(reaction==='feed_kibble'||reaction==='feed_fruit'||reaction==='feed_fish'){const chew=Math.sin(reactTime*13);headPivot.rotation.x=-.18+Math.max(0,chew)*.28;playerMesh.scale.setScalar(petGrowthScale*(1+Math.max(0,chew)*.045));arms[0].rotation.x=-.55;arms[1].rotation.x=-.55;}
- else if(reaction==='give_water'){headPivot.rotation.x=-.32+Math.sin(reactTime*8)*.06;playerMesh.scale.setScalar(petGrowthScale*(1+Math.sin(reactTime*9)*.025));}
- else if(reaction==='clean_pet'){playerMesh.scale.setScalar(petGrowthScale*(1+Math.sin(reactTime*18)*.035));headPivot.rotation.z=Math.sin(reactTime*10)*.12;}
- else if(reaction==='sleep_pet'){playerMesh.scale.setScalar(petGrowthScale*(1-Math.sin(Math.min(1,reactTime/2)*Math.PI)*.08));headPivot.rotation.x=.22;}
+ else if(reaction==='feed_kibble'||reaction==='feed_fruit'||reaction==='feed_fish'){const chew=Math.sin(reactTime*13);headPivot.rotation.x=-.28+Math.max(0,chew)*.34;headPivot.rotation.z=Math.sin(t*10)*.035;playerMesh.scale.setScalar(petGrowthScale*(1+Math.max(0,chew)*.045));arms[0].rotation.x=-.7+Math.sin(t*13)*.08;arms[1].rotation.x=-.7+Math.sin(t*13)*.08;}
+ else if(reaction==='give_water'){headPivot.rotation.x=-.42+Math.sin(reactTime*8)*.07;arms[0].rotation.x=-.45;arms[1].rotation.x=-.45;playerMesh.scale.setScalar(petGrowthScale*(1+Math.sin(reactTime*9)*.025));}
+ else if(reaction==='clean_pet'){playerMesh.scale.setScalar(petGrowthScale*(1+Math.sin(reactTime*18)*.035));headPivot.rotation.z=Math.sin(reactTime*10)*.12;arms[0].rotation.z=Math.sin(t*12)*.48;arms[1].rotation.z=-Math.sin(t*12)*.48;}
+ else if(reaction==='sleep_pet'){playerMesh.scale.set(petGrowthScale*.98,petGrowthScale*.78,petGrowthScale);playerMesh.position.y=.02;headPivot.rotation.x=.38;ears[0].rotation.z=-.65;ears[1].rotation.z=.65;}
+ else if(reaction==='give_medicine'){headPivot.rotation.x=.22+Math.sin(t*7)*.04;arms[0].rotation.z=-.28;arms[1].rotation.z=.28;}
+ else if(player.userData?.pet_sick||player?.pet_sick){headPivot.rotation.x=.25;headPivot.rotation.z=.07;ears[0].rotation.z=-.62;ears[1].rotation.z=.62;playerMesh.scale.lerp(new THREE.Vector3(petGrowthScale*.98,petGrowthScale*.96,petGrowthScale),.08);}
  else{playerMesh.scale.lerp(new THREE.Vector3(petGrowthScale,petGrowthScale,petGrowthScale),.12);arms[0].rotation.z*=.82;arms[1].rotation.z*=.82;} 
  camera.position.x=playerMesh.position.x+Math.sin(cameraAngle)*7.4;
  camera.position.z=playerMesh.position.z+Math.cos(cameraAngle)*7.4;
