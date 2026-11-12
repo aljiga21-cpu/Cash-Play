@@ -169,11 +169,14 @@ def new_player(user: dict) -> dict:
         "last_daily": "",
         "last_action": 0,
         "pet_hunger": 85,
+        "pet_thirst": 100,
         "pet_happiness": 85,
         "pet_cleanliness": 90,
         "pet_energy": 90,
         "pet_health": 100,
         "pet_sick": False,
+        "pet_dead": False,
+        "pet_death_at": None,
         "pet_poop": 0,
         "pet_medicine": 2,
         "pet_last_poop": time.time(),
@@ -183,6 +186,9 @@ def new_player(user: dict) -> dict:
         "pet_last_update": time.time(),
         "owned_characters": ["sprout"],
         "active_character": "sprout",
+        "pet_born_at": utc_now(),
+        "pet_age_days": 0,
+        "pet_growth_stage": "Bebé",
     }
 
 
@@ -200,11 +206,14 @@ def get_or_create_player(data: dict, user: dict) -> dict:
     player.setdefault("world_nodes", [])
     player.setdefault("placed_buildings", [])
     player.setdefault("pet_hunger", 85)
+    player.setdefault("pet_thirst", 100)
     player.setdefault("pet_happiness", 85)
     player.setdefault("pet_cleanliness", 90)
     player.setdefault("pet_energy", 90)
     player.setdefault("pet_health", 100)
     player.setdefault("pet_sick", False)
+    player.setdefault("pet_dead", False)
+    player.setdefault("pet_death_at", None)
     player.setdefault("pet_poop", 0)
     player.setdefault("pet_medicine", 2)
     player.setdefault("pet_last_poop", time.time())
@@ -216,9 +225,34 @@ def get_or_create_player(data: dict, user: dict) -> dict:
     if "sprout" not in player["owned_characters"]:
         player["owned_characters"].insert(0, "sprout")
     player.setdefault("active_character", "sprout")
-    elapsed = max(0, min(86400, time.time() - float(player.get("pet_last_update", time.time()))))
+    # La mascota empieza su propia vida cuando se incorpora esta función.
+    player.setdefault("pet_born_at", utc_now())
+    try:
+        born = datetime.fromisoformat(str(player["pet_born_at"]).replace("Z", "+00:00"))
+        if born.tzinfo is None:
+            born = born.replace(tzinfo=timezone.utc)
+        age_days = max(0, (datetime.now(timezone.utc) - born.astimezone(timezone.utc)).days)
+    except (TypeError, ValueError):
+        player["pet_born_at"] = utc_now()
+        age_days = 0
+    if age_days < 3:
+        growth_stage = "Bebé"
+    elif age_days < 7:
+        growth_stage = "Pequeño"
+    elif age_days < 14:
+        growth_stage = "Infantil"
+    elif age_days < 30:
+        growth_stage = "Adolescente"
+    else:
+        growth_stage = "Adulto"
+    player["pet_age_days"] = age_days
+    player["pet_growth_stage"] = growth_stage
+    # El tiempo offline se calcula completo (hasta 60 días), no solo las últimas 24 horas.
+    elapsed = max(0, min(60 * 86400, time.time() - float(player.get("pet_last_update", time.time()))))
     hours = elapsed / 3600.0
-    player["pet_hunger"] = max(0, float(player["pet_hunger"]) - hours * 2.0)
+    if not player.get("pet_dead"):
+        player["pet_hunger"] = max(0, float(player["pet_hunger"]) - hours * 1.8)
+        player["pet_thirst"] = max(0, float(player.get("pet_thirst", 100)) - hours * 2.0)
     player["pet_happiness"] = max(0, float(player["pet_happiness"]) - hours * 1.25)
     player["pet_cleanliness"] = max(0, float(player["pet_cleanliness"]) - hours * 1.0)
     player["pet_energy"] = min(100, float(player["pet_energy"]) + hours * 1.6)
@@ -230,11 +264,14 @@ def get_or_create_player(data: dict, user: dict) -> dict:
         player["pet_poop"] = min(3, int(player.get("pet_poop", 0)) + due_piles)
         player["pet_last_poop"] = last_poop + due_piles * 18000
     # La falta prolongada de higiene o comida puede provocar enfermedad.
-    if (float(player["pet_cleanliness"]) < 12 or float(player["pet_hunger"]) < 8 or int(player.get("pet_poop", 0)) >= 3):
+    if not player.get("pet_dead") and (float(player["pet_cleanliness"]) < 12 or float(player["pet_hunger"]) < 8 or float(player.get("pet_thirst", 100)) < 8 or int(player.get("pet_poop", 0)) >= 3):
         player["pet_sick"] = True
-    if player.get("pet_sick"):
-        player["pet_health"] = max(10, float(player.get("pet_health", 100)) - hours * 3.0)
+    if player.get("pet_sick") and not player.get("pet_dead"):
+        player["pet_health"] = max(0, float(player.get("pet_health", 100)) - hours * 1.8)
         player["pet_happiness"] = max(0, float(player["pet_happiness"]) - hours * 1.5)
+        if player["pet_health"] <= 0:
+            player["pet_dead"] = True
+            player["pet_death_at"] = utc_now()
     player["pet_last_update"] = now_ts
     player.setdefault("buildings", {"campfire": 0, "shelter": 0, "cabin": 0})
     player["buildings"].setdefault("cabin", 0)
@@ -273,8 +310,9 @@ def public_player(player: dict) -> dict:
         "id", "username", "first_name", "level", "xp", "coins", "redeemable_coins", "rewarded_ads_count", "health",
         "hunger", "thirst", "energy", "wood", "stone", "food", "water",
         "medkits", "inventory", "tools", "buildings", "placed_buildings", "world_nodes", "upgrades", "vip_until",
-        "pet_hunger", "pet_happiness", "pet_cleanliness", "pet_energy", "pet_health", "pet_sick",
+        "pet_hunger", "pet_thirst", "pet_happiness", "pet_cleanliness", "pet_energy", "pet_health", "pet_sick", "pet_dead", "pet_death_at",
         "pet_poop", "pet_medicine", "pet_games_today", "owned_characters", "active_character",
+        "pet_born_at", "pet_age_days", "pet_growth_stage",
     )
     return {key: player.get(key) for key in keys}
 
@@ -715,6 +753,9 @@ def api_action():
             data = load_store()
             player = get_or_create_player(data, user)
 
+            if player.get("pet_dead") and action != "adopt_pet":
+                return jsonify(error="Tu mascota ha fallecido. Puedes adoptar una nueva para empezar otra historia."), 410
+
             # Límite sencillo contra spam de acciones.
             if now - float(player.get("last_action", 0)) < 0.65:
                 return jsonify(error="Espera un momento antes de repetir la acción"), 429
@@ -727,12 +768,29 @@ def api_action():
                 player["active_character"] = character
                 message = "¡Tu nueva mascota ya está lista!"
             elif action == "feed_pet":
+                food_type = str(body.get("food_type", "kibble"))
+                food_values = {"kibble": (28, 2, 0, "pienso"), "fruit": (20, 8, 0, "fruta"), "fish": (35, 5, 2, "pescado")}
+                if food_type not in food_values:
+                    return jsonify(error="Tipo de comida no válido"), 400
                 if player["food"] < 1:
                     return jsonify(error="No tienes pienso. Vuelve mañana o consigue una recompensa."), 400
+                hunger_gain, happy_gain, health_gain, food_name = food_values[food_type]
                 player["food"] -= 1
-                player["pet_hunger"] = min(100, float(player["pet_hunger"]) + 28)
-                player["pet_happiness"] = min(100, float(player["pet_happiness"]) + 4)
-                message = "¡Ñam! Tu mascota ha comido feliz."
+                player["pet_hunger"] = min(100, float(player["pet_hunger"]) + hunger_gain)
+                player["pet_happiness"] = min(100, float(player["pet_happiness"]) + happy_gain)
+                player["pet_health"] = min(100, float(player.get("pet_health", 100)) + health_gain)
+                message = f"¡Ñam! Ha comido {food_name}."
+            elif action == "give_water":
+                if int(player.get("water", 0)) < 1:
+                    return jsonify(error="No tienes agua. Recoge el regalo diario para conseguir más."), 400
+                player["water"] -= 1
+                player["pet_thirst"] = min(100, float(player.get("pet_thirst", 100)) + 42)
+                player["pet_happiness"] = min(100, float(player["pet_happiness"]) + 3)
+                message = "¡Glup, glup! Tu mascota ha bebido agua fresca."
+            elif action == "adopt_pet":
+                player.update({"pet_hunger": 85, "pet_thirst": 100, "pet_happiness": 85, "pet_cleanliness": 90, "pet_energy": 90, "pet_health": 100, "pet_sick": False, "pet_dead": False, "pet_death_at": None, "pet_poop": 0, "pet_medicine": max(1, int(player.get("pet_medicine", 0))), "pet_last_poop": time.time(), "pet_last_update": time.time(), "pet_born_at": utc_now(), "pet_age_days": 0, "pet_growth_stage": "Bebé"})
+                player["active_character"] = "sprout"
+                message = "Has adoptado una nueva mascota bebé. Cuídala cada día."
             elif action == "play_pet":
                 if player["pet_energy"] < 8:
                     return jsonify(error="Tu mascota está cansada. Déjala dormir un poco."), 400
@@ -1086,12 +1144,14 @@ button:active{transform:scale(.97);background:#315b42}button.primary{background:
  <div class="panel">
   <div class="brand">🐾 MI MASCOTA · ISLA SALVAJE</div>
   <div class="petName" id="petName">Sprout</div>
+  <div class="petBadge" id="petAge">👶 Bebé · Día 1</div>
   <div class="petMood" id="petMood">Tu nueva amistad te espera 💖</div>
   <div class="sub">💊 Medicina: <b id="medicineCountTop">2</b> · 💩 Necesidades: <b id="poopCountTop">0</b></div>
   <div class="sub" id="level">Nivel 1</div><div class="sub" id="xp">0 / 100 XP</div><div class="sub">🍓 Pienso disponible: <b id="foodCount">2</b></div>
  </div>
  <div class="panel petStats">
   <div>🍓 Hambre <b id="petHungerText">85%</b><div class="meter"><i id="petHungerBar"></i></div></div>
+  <div>💧 Sed <b id="petThirstText">100%</b><div class="meter"><i id="petThirstBar"></i></div></div>
   <div>💗 Felicidad <b id="petHappyText">85%</b><div class="meter"><i id="petHappyBar"></i></div></div>
   <div>🫧 Limpieza <b id="petCleanText">90%</b><div class="meter"><i id="petCleanBar"></i></div></div>
   <div>⚡ Energía <b id="petEnergyText">90%</b><div class="meter"><i id="petEnergyBar"></i></div></div>
@@ -1100,7 +1160,8 @@ button:active{transform:scale(.97);background:#315b42}button.primary{background:
 <div id="hint">Cuida de tu mascota, juega con ella y descubre sus reacciones ✨</div>
 <div id="toast"></div>
 <div class="petActions">
- <button class="primary" onclick="petAction('feed_pet')">🍓 Dar de comer</button>
+ <button class="primary" onclick="openFeedMenu()">🍓 Dar de comer</button>
+ <button onclick="petAction('give_water')">💧 Dar agua <b id="waterCount">2</b></button>
  <button onclick="petAction('play_pet')">🎾 Jugar</button>
  <button onclick="petAction('clean_pet')">🫧 Bañar</button>
  <button onclick="petAction('clean_poop')">🧹 Recoger caca <b id="poopCount">0</b></button>
@@ -1111,6 +1172,8 @@ button:active{transform:scale(.97);background:#315b42}button.primary{background:
  <button id="rewardedAdButton" onclick="showRewardedAd()">🎬 Anuncio</button>
  <button onclick="openShop()">👑 Personajes VIP</button>
 </div>
+<div id="feedMenu" class="sheet" style="display:none;position:fixed;z-index:12;left:50%;top:50%;transform:translate(-50%,-50%);width:min(92vw,420px)"><h3>🍽️ ¿Qué le damos de comer?</h3><p class="sub">Cada comida tiene un efecto distinto.</p><div class="gameChoices"><button onclick="feedPet('kibble')">🥣 Pienso<small>+28 hambre</small></button><button onclick="feedPet('fruit')">🍎 Fruta<small>+20 hambre · +8 felicidad</small></button><button onclick="feedPet('fish')">🐟 Pescado<small>+35 hambre · +2 salud</small></button></div><button onclick="closeFeedMenu()">Cancelar</button></div>
+<div id="deadOverlay" style="display:none;position:fixed;z-index:20;inset:0;background:#080b18ed;color:white;align-items:center;justify-content:center;text-align:center;padding:24px"><div class="sheet" style="max-width:440px"><div style="font-size:64px">🕯️</div><h2>Tu mascota ha fallecido</h2><p>Ha pasado demasiado tiempo sin cuidados. Esta historia ha terminado, pero puedes darle un nuevo hogar a otra mascota bebé.</p><button class="primary" onclick="adoptNewPet()">🐣 Adoptar otra mascota</button></div></div>
 <div id="games"><div class="sheet gameSheet">
  <div style="display:flex;justify-content:space-between;align-items:center"><div><h3>🎮 ¡Vamos a jugar!</h3><p class="sub">Juega con tu mascota para subir su felicidad. Máximo 10 partidas al día.</p></div><button onclick="closeGames()">Cerrar ✕</button></div>
  <div class="gameChoices">
@@ -1136,6 +1199,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.m
 const tg = window.Telegram?.WebApp;
 if (tg) { tg.ready(); tg.expand(); }
 let player = null;
+let petGrowthScale = 0.58;
 function telegramInitData(){
  // Read it at request time; do not cache an empty value during WebView startup.
  return window.Telegram?.WebApp?.initData || '';
@@ -1147,20 +1211,26 @@ const toastEl = document.getElementById('toast');
 function toast(msg){toastEl.textContent=msg;toastEl.style.display='block';clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>toastEl.style.display='none',2600)}
 function renderPlayer(p){
  player=p;
- const petFields=[['pet_hunger','petHunger'],['pet_happiness','petHappy'],['pet_cleanliness','petClean'],['pet_energy','petEnergy']];
+ const petFields=[['pet_hunger','petHunger'],['pet_thirst','petThirst'],['pet_happiness','petHappy'],['pet_cleanliness','petClean'],['pet_energy','petEnergy']];
  for(const [field,id] of petFields){const v=Math.round(Number(p[field]??0));document.getElementById(id+'Text').textContent=v+'%';document.getElementById(id+'Bar').style.width=v+'%';}
  const mood=p.pet_sick?'No se encuentra bien. Necesita cuidados 🤒':p.pet_happiness>75?'¡Está encantada de verte! 💖':p.pet_happiness>40?'Quiere jugar contigo 🥰':'Necesita un poco de cariño 🥺';
  document.getElementById('petMood').textContent=mood;
  const sick=document.getElementById('sickAlert');if(sick)sick.style.display=p.pet_sick?'block':'none';
+ const dead=document.getElementById('deadOverlay');if(dead)dead.style.display=p.pet_dead?'flex':'none';
  const poop=Number(p.pet_poop||0),medicine=Number(p.pet_medicine||0);
  for(const id of ['poopCount','poopCountTop']){const el=document.getElementById(id);if(el)el.textContent=poop;}
  for(const id of ['medicineCount','medicineCountTop']){const el=document.getElementById(id);if(el)el.textContent=medicine;}
  if(typeof syncPoopVisuals==='function')syncPoopVisuals(poop);
  document.getElementById('petName').textContent=({sprout:'Sprout',aurora_fox:'Zorro Aurora',ruby_dragon:'Dragón Rubí',cosmic_axolotl:'Ajolote Cósmico'})[p.active_character||'sprout']||'Sprout';
+ const ageDays=Math.max(0,Number(p.pet_age_days||0));
+ const stage=p.pet_growth_stage||'Bebé';
+ document.getElementById('petAge').textContent=`${({Bebé:'👶',Pequeño:'🐣',Infantil:'🧸',Adolescente:'✨',Adulto:'🌟'})[stage]||'👶'} ${stage} · Día ${ageDays+1}`;
+ petGrowthScale=ageDays<3?.58:ageDays<7?.68:ageDays<14?.79:ageDays<30?.9:1.0;
  applyPetCharacter(p.active_character||'sprout');
  const owned=p.owned_characters||['sprout'];
  [['aurora_fox','buyFox','vip_fox'],['ruby_dragon','buyDragon','vip_dragon'],['cosmic_axolotl','buyAxolotl','vip_axolotl']].forEach(([id,buttonId,product])=>{const b=document.getElementById(buttonId);if(!b)return;if(owned.includes(id)){b.textContent=p.active_character===id?'En uso':'Usar';b.onclick=()=>selectCharacter(id);}else{b.textContent='Desbloquear';b.onclick=()=>buy(product);}});
  document.getElementById('foodCount').textContent=Number(p.food||0);
+ const waterCount=document.getElementById('waterCount');if(waterCount)waterCount.textContent=Number(p.water||0);
  const rewardBtn=document.getElementById('rewardedAdButton'); if(rewardBtn){const capped=Number(p.rewarded_ads_count||0)>=10;rewardBtn.disabled=capped;rewardBtn.textContent=capped?'Límite diario alcanzado':'🎬 Anuncio + pienso';}
  document.getElementById('level').textContent=`Nivel ${p.level}`;
  document.getElementById('xp').textContent=`${p.xp} / ${p.level*100} XP`;
@@ -1178,6 +1248,10 @@ async function load(){
 }
 window.act=async(action,extra={})=>{try{const j=await api('/api/action',{action,...extra});renderPlayer(j.player);toast(j.message);return j}catch(e){toast(e.message);return null}};
 window.petAction=async(action)=>{const result=await window.act(action);if(result){petReact(action);}};
+window.openFeedMenu=()=>{if(player?.pet_dead)return;document.getElementById('feedMenu').style.display='block';};
+window.closeFeedMenu=()=>document.getElementById('feedMenu').style.display='none';
+window.feedPet=async(food_type)=>{const result=await window.act('feed_pet',{food_type});if(result){closeFeedMenu();petReact('feed_'+food_type);}};
+window.adoptNewPet=async()=>{const result=await window.act('adopt_pet');if(result){renderPlayer(result.player);document.getElementById('deadOverlay').style.display='none';petReact('adopt_pet');}};
 window.selectCharacter=async(character)=>{const result=await window.act('select_character',{character});if(result)applyPetCharacter(character);};
 
 window.openShop=()=>{document.getElementById('shop').style.display='flex';if(player)renderPlayer(player)};
@@ -1234,6 +1308,26 @@ window.buy=async(product_id)=>{
   status.textContent='Pulsa el botón PayPal para pagar sin cerrar tu partida.';
  }catch(e){document.getElementById('paypalStatus').textContent=e.message;toast(e.message);}
 };
+// Minijuegos táctiles: cada partida tiene una interacción real y anima a la mascota.
+let miniGameTimer=null;
+window.openGames=()=>{if(player?.pet_dead)return;document.getElementById('games').style.display='flex';};
+window.closeGames=()=>{document.getElementById('games').style.display='none';if(miniGameTimer)clearInterval(miniGameTimer);};
+window.startMiniGame=async(kind)=>{
+ if(!['catch','memory','dance'].includes(kind))return;
+ petReact('mini_game');
+ const area=document.getElementById('miniGameArea');area.innerHTML='<p class="sub">Preparando el juego…</p>';
+ if(kind==='catch'){
+  let score=0;area.innerHTML='<p>⭐ Toca 5 estrellas antes de que desaparezcan.</p><div id="catchScore">0 / 5</div><div id="catchTargets"></div>';
+  const spawn=()=>{const wrap=document.getElementById('catchTargets');if(!wrap)return;wrap.innerHTML='';const b=document.createElement('button');b.className='gameTarget';b.textContent='⭐';b.onclick=()=>{score++;document.getElementById('catchScore').textContent=score+' / 5';if(score>=5)finishMiniGame(kind);else spawn();};wrap.appendChild(b);};spawn();
+ }else if(kind==='memory'){
+  const vals=['🍓','⭐','💎','🌸'];const cards=[...vals,...vals].sort(()=>Math.random()-.5);let opened=[],matched=0;area.innerHTML='<p>Encuentra las cuatro parejas.</p><div id="memoryGrid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px"></div>';
+  cards.forEach((v,i)=>{const b=document.createElement('button');b.className='gameTarget';b.textContent='❔';b.onclick=()=>{if(b.dataset.done||opened.length>=2||b.textContent!=='❔')return;b.textContent=v;opened.push({b,v});if(opened.length===2){if(opened[0].v===opened[1].v){opened.forEach(x=>x.b.dataset.done='1');matched++;opened=[];if(matched===4)finishMiniGame(kind);}else{const pair=opened;setTimeout(()=>{pair.forEach(x=>x.b.textContent='❔');opened=[];},650);}}};document.getElementById('memoryGrid').appendChild(b);});
+ }else{
+  let taps=0;const sequence=['⬅️','➡️','⬆️','⬇️','⬅️'];area.innerHTML='<p>Sigue la secuencia de baile tocando las flechas:</p><h2 id="danceCue">⬅️</h2><button class="gameTarget" onclick="danceTap()">💃</button><p id="danceScore">0 / 5</p>';window.danceTap=()=>{if(sequence[taps]){taps++;document.getElementById('danceScore').textContent=taps+' / 5';document.getElementById('danceCue').textContent=sequence[taps]||'🎉';if(taps===5)finishMiniGame(kind);}};
+ }
+};
+async function finishMiniGame(kind){const result=await window.act('mini_game',{game:kind});if(result){petReact('mini_game');document.getElementById('miniGameArea').innerHTML='<h3>🎉 ¡Lo has conseguido!</h3><p>'+result.message+'</p><button onclick="startMiniGame(''+kind+'')">Volver a jugar</button>';}}
+
 // Monetag SDK: esperamos a que el script asíncrono esté realmente disponible.
 // La recompensa económica se acredita exclusivamente mediante postback S2S.
 function waitForMonetag(timeoutMs=15000){
@@ -1438,7 +1532,7 @@ function applyPetCharacter(id){
   for(const side of [-1,1])for(let j=0;j<3;j++){const gill=part(vipExtras,new THREE.ConeGeometry(.09,.34,7),accentMat,[side*(.58+j*.07),.05-j*.13,.03]);gill.rotation.z=side*(.9+j*.12);}
  }
 }
-function petReact(action){const now=performance.now();playerMesh.userData.reactUntil=now+950;playerMesh.userData.react=action;}
+function petReact(action){const now=performance.now();playerMesh.userData.reactUntil=now+2600;playerMesh.userData.react=action;playerMesh.userData.reactStarted=now;}
 // Acciones de mascota: las herramientas de supervivencia se retiran del modelo.
 const toolGroup=new THREE.Group();arms[1].add(toolGroup);toolGroup.visible=false;
 const spearGroup=new THREE.Group();arms[1].add(spearGroup);spearGroup.visible=false;
@@ -1503,7 +1597,13 @@ function animate(){
  headPivot.rotation.x=Math.sin(t*1.4)*.035;headPivot.rotation.z=Math.sin(t*1.1)*.025;
  ears[0].rotation.z=-.18+Math.sin(t*2.4)*.08;ears[1].rotation.z=.18-Math.sin(t*2.4)*.08;tailPivot.rotation.x=Math.sin(t*2.8)*.22;tailPivot.rotation.z=Math.sin(t*1.8)*.18;
  const reaction=playerMesh.userData.reactUntil>now?playerMesh.userData.react:null;
- if(reaction==='play_pet'){playerMesh.scale.setScalar(1+Math.max(0,Math.sin(t*18))*.14);arms[0].rotation.z=Math.sin(t*18)*.65;arms[1].rotation.z=-Math.sin(t*18)*.65;}else{playerMesh.scale.lerp(new THREE.Vector3(1,1,1),.12);}
+ const reactTime=(now-(playerMesh.userData.reactStarted||now))*.001;
+ if(reaction==='play_pet'||reaction==='mini_game'){playerMesh.scale.setScalar(petGrowthScale*(1+Math.max(0,Math.sin(t*15))*.16));arms[0].rotation.z=Math.sin(t*15)*.72;arms[1].rotation.z=-Math.sin(t*15)*.72;legs[0].rotation.x=Math.sin(t*15)*.65;legs[1].rotation.x=-Math.sin(t*15)*.65;}
+ else if(reaction==='feed_kibble'||reaction==='feed_fruit'||reaction==='feed_fish'){const chew=Math.sin(reactTime*13);headPivot.rotation.x=-.18+Math.max(0,chew)*.28;playerMesh.scale.setScalar(petGrowthScale*(1+Math.max(0,chew)*.045));arms[0].rotation.x=-.55;arms[1].rotation.x=-.55;}
+ else if(reaction==='give_water'){headPivot.rotation.x=-.32+Math.sin(reactTime*8)*.06;playerMesh.scale.setScalar(petGrowthScale*(1+Math.sin(reactTime*9)*.025));}
+ else if(reaction==='clean_pet'){playerMesh.scale.setScalar(petGrowthScale*(1+Math.sin(reactTime*18)*.035));headPivot.rotation.z=Math.sin(reactTime*10)*.12;}
+ else if(reaction==='sleep_pet'){playerMesh.scale.setScalar(petGrowthScale*(1-Math.sin(Math.min(1,reactTime/2)*Math.PI)*.08));headPivot.rotation.x=.22;}
+ else{playerMesh.scale.lerp(new THREE.Vector3(petGrowthScale,petGrowthScale,petGrowthScale),.12);arms[0].rotation.z*=.82;arms[1].rotation.z*=.82;} 
  camera.position.x=playerMesh.position.x+Math.sin(cameraAngle)*7.4;
  camera.position.z=playerMesh.position.z+Math.cos(cameraAngle)*7.4;
  camera.position.y=4.25;
