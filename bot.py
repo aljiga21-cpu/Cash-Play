@@ -1338,7 +1338,7 @@ GAME_HTML = r"""<!doctype html>
 #scene{position:fixed;inset:0;z-index:0}canvas{display:block}
 .gameHeader{display:none}.hud{position:fixed;z-index:2;left:10px;right:10px;top:12px;display:flex;gap:8px;align-items:flex-start;justify-content:space-between;pointer-events:none}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:9px 11px;backdrop-filter:blur(10px);box-shadow:0 6px 25px #0005}
-.petAvatar{width:62px;height:62px;object-fit:cover;border-radius:50%;border:2px solid #ffd5e9;box-shadow:0 4px 16px #0008;flex:0 0 auto;background:#6b8fd5}.petBrandRow{display:flex;align-items:center;gap:9px}.petBrandText{min-width:0}.brand{font-weight:900;letter-spacing:1px;font-size:13px}.sub{font-size:10px;color:#b8c8bf}
+.petAvatar{display:block;width:62px;height:62px;object-fit:cover;object-position:center;border-radius:50%;border:2px solid #ffd5e9;box-shadow:0 4px 16px #0008;flex:0 0 auto;background:#6b8fd5}.petBrandRow{display:flex;align-items:center;gap:9px}.petBrandText{min-width:0}.brand{font-weight:900;letter-spacing:1px;font-size:13px}.sub{font-size:10px;color:#b8c8bf}
 .petStats{min-width:190px;display:grid;gap:7px;font-size:11px}.meter{height:7px;background:#ffffff25;border-radius:99px;overflow:hidden;margin-top:3px}.meter i{display:block;height:100%;width:80%;border-radius:99px;background:linear-gradient(90deg,#8ef0c1,#ffe18a);transition:width .35s}.petName{font-size:17px;font-weight:900}.petMood{font-size:11px;color:#ffe1f0}.petActions{position:fixed;z-index:5;left:50%;transform:translateX(-50%);bottom:max(14px,env(safe-area-inset-bottom));display:flex;gap:8px;flex-wrap:wrap;justify-content:center;width:min(94vw,620px)}.petActions button{min-width:88px;background:linear-gradient(145deg,#59458b,#293f73);border:1px solid #ffffff35;box-shadow:0 7px 20px #070d2b70}.petActions button.primary{background:linear-gradient(145deg,#e66da9,#a747a5)}.petTop{display:flex;gap:8px;align-items:center}.petBadge{border-radius:99px;background:#ffffff20;padding:5px 9px;font-size:10px}
 
 button{border:1px solid var(--line);background:rgba(19,38,32,.94);color:#fff;border-radius:12px;padding:11px 7px;font-weight:700;font-size:12px;min-height:43px}
@@ -1374,7 +1374,7 @@ button:active{transform:scale(.97);background:#315b42}button.primary{background:
 <div id="scene"></div>
 <div class="hud">
  <div class="panel">
-  <div class="petBrandRow"><img class="petAvatar" src="/pet-avatar.png" alt="Mi mascota" onerror="this.style.display='none'"><div class="petBrandText"><div class="brand">🐾 MI MASCOTA 3D · TAMAGOTCHI</div>
+  <div class="petBrandRow"><img class="petAvatar" src="data:image/png;base64,__PET_AVATAR_B64__" alt="Mi mascota"><div class="petBrandText"><div class="brand">🐾 MI MASCOTA 3D · TAMAGOTCHI</div>
   <div class="petName" id="petName">Sprout</div></div></div>
   <div class="petBadge" id="petAge">👶 Bebé · Día 1</div>
   <div class="petMood" id="petMood">Tu nueva amistad te espera 💖</div>
@@ -1843,9 +1843,9 @@ function propMesh(parent,geometry,material,x,y,z){const m=new THREE.Mesh(geometr
 const foodProp=new THREE.Group();actionProps.add(foodProp);propGroups.food=foodProp;
 propMesh(foodProp,new THREE.CylinderGeometry(.48,.40,.16,32),propMat(0x9b6a45),0,.13,0);
 propMesh(foodProp,new THREE.CylinderGeometry(.39,.39,.035,32),propMat(0xead9bd),0,.225,0);
-const kibbleMat=propMat(0x8b5932),appleMat=propMat(0xe84f45),leafMat=propMat(0x4e9a52),fishMat=propMat(0xf0a64c);
+const kibbleMat=propMat(0x8b5932),appleMat=propMat(0xe84f45),foodLeafMat=propMat(0x4e9a52),fishMat=propMat(0xf0a64c);
 for(let i=0;i<9;i++){const a=i*2.4;propMesh(foodProp,new THREE.SphereGeometry(.075,10,8),kibbleMat,Math.cos(a)*.25,.28,Math.sin(a)*.25);}
-const fruitProp=new THREE.Group();foodProp.add(fruitProp);propMesh(fruitProp,new THREE.SphereGeometry(.17,18,14),appleMat,0,.36,0);propMesh(fruitProp,new THREE.ConeGeometry(.055,.16,8),leafMat,.03,.53,0).rotation.z=-.45;fruitProp.visible=false;
+const fruitProp=new THREE.Group();foodProp.add(fruitProp);propMesh(fruitProp,new THREE.SphereGeometry(.17,18,14),appleMat,0,.36,0);propMesh(fruitProp,new THREE.ConeGeometry(.055,.16,8),foodLeafMat,.03,.53,0).rotation.z=-.45;fruitProp.visible=false;
 const fishProp=new THREE.Group();foodProp.add(fishProp);propMesh(fishProp,new THREE.SphereGeometry(.24,18,12),fishMat,0,.36,0,[1.35,.55,.7]);const fishTail=propMesh(fishProp,new THREE.ConeGeometry(.15,.28,3),fishMat,-.28,.36,0);fishTail.rotation.z=Math.PI/2;fishProp.visible=false;
 // Cuenco de agua con superficie animada y ondas.
 const waterProp=new THREE.Group();actionProps.add(waterProp);propGroups.water=waterProp;
@@ -2014,7 +2014,9 @@ startMonetagInApp();
 
 @app.get("/")
 def index():
-    response = make_response(GAME_HTML.replace("__PAYPAL_CLIENT_ID__", PAYPAL_CLIENT_ID))
+    html = GAME_HTML.replace("__PAYPAL_CLIENT_ID__", PAYPAL_CLIENT_ID)
+    html = html.replace("__PET_AVATAR_B64__", PET_AVATAR_B64)
+    response = make_response(html)
     response.headers["Cache-Control"] = "no-store"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self' https: data: blob:; "
