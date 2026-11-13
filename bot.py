@@ -1,6 +1,6 @@
 """
 SUPERVIVENCIA 3D - Telegram Mini App
-Backend de un solo archivo: Flask + Telegram Bot API + PayPal Checkout + JSON.
+Backend de un solo archivo: Flask + Telegram Bot API + Telegram Stars + JSON.
 
 Variables de entorno obligatorias:
   BOT_TOKEN
@@ -18,8 +18,8 @@ IMPORTANTE:
   persistente puede perderse al reiniciar, desplegar o mover la instancia.
 - Las recompensas Monetag SOLO se abonan mediante el postback del servidor. No confíes
   en una señal JavaScript del navegador como prueba de que se vio un anuncio.
-- La tienda web cobra con PayPal Checkout en ventana emergente; el servidor captura y valida cada pedido.
-- Telegram Stars queda disponible como ruta heredada, pero la tienda del juego utiliza PayPal.
+- La tienda del juego utiliza Telegram Stars (XTR), el sistema de pago integrado de Telegram para bienes digitales.
+- Las compras se validan en el webhook antes de entregar los productos.
 """
 
 from __future__ import annotations
@@ -48,14 +48,6 @@ from flask import Flask, jsonify, make_response, request, send_file
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 PUBLIC_URL = os.getenv("PUBLIC_URL", os.getenv("RENDER_EXTERNAL_URL", "")).strip().rstrip("/")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "").strip()
-PAYPAL_CLIENT_ID = os.getenv("PAYPAL_CLIENT_ID", "").strip()
-PAYPAL_CLIENT_SECRET = os.getenv("PAYPAL_CLIENT_SECRET", "").strip()
-PAYPAL_MODE = os.getenv("PAYPAL_MODE", "sandbox").strip().lower()
-PAYPAL_API = (
-    "https://api-m.paypal.com"
-    if PAYPAL_MODE == "live"
-    else "https://api-m.sandbox.paypal.com"
-)
 MONETAG_ZONE_ID = os.getenv("MONETAG_ZONE_ID", "").strip()
 MONETAG_POSTBACK_SECRET = os.getenv("MONETAG_POSTBACK_SECRET", "").strip()
 ADMIN_SECRET = os.getenv("ADMIN_SECRET", "").strip()
@@ -80,18 +72,21 @@ PRODUCTS = {
         "title": "Zorro Aurora VIP",
         "description": "Desbloquea para siempre al Zorro Aurora VIP",
         "price": "2.99",
+        "stars": 150,
         "character": "aurora_fox",
     },
     "vip_dragon": {
         "title": "Dragón Rubí VIP",
         "description": "Desbloquea para siempre al Dragón Rubí VIP",
         "price": "4.99",
+        "stars": 250,
         "character": "ruby_dragon",
     },
     "vip_axolotl": {
         "title": "Ajolote Cósmico VIP",
         "description": "Desbloquea para siempre al Ajolote Cósmico VIP",
         "price": "3.99",
+        "stars": 200,
         "character": "cosmic_axolotl",
     },
 }
@@ -779,171 +774,6 @@ def stars_create_invoice():
         return jsonify(error="No se ha podido iniciar el pago con Telegram Stars", detail=str(exc)), 400
 
 
-# ----------------------------- PAYPAL -----------------------------
-
-def paypal_access_token() -> str:
-    if not PAYPAL_CLIENT_ID or not PAYPAL_CLIENT_SECRET:
-        raise RuntimeError("PayPal no está configurado en Render")
-    response = requests.post(
-        f"{PAYPAL_API}/v1/oauth2/token",
-        auth=(PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET),
-        data={"grant_type": "client_credentials"},
-        headers={"Accept": "application/json"},
-        timeout=25,
-    )
-    try:
-        response.raise_for_status()
-    except requests.HTTPError:
-        log.error("PayPal OAuth rechazó las credenciales (%s): %s", response.status_code, response.text[:1000])
-        raise
-    return response.json()["access_token"]
-
-
-def paypal_request(method: str, path: str, payload: dict | None = None) -> dict:
-    token = paypal_access_token()
-    response = requests.request(
-        method,
-        f"{PAYPAL_API}{path}",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-            "PayPal-Request-Id": str(uuid.uuid4()),
-        },
-        json=payload,
-        timeout=30,
-    )
-    response.raise_for_status()
-    return response.json()
-
-
-@app.post("/api/paypal/create-order")
-def paypal_create_order():
-    try:
-        user = authenticated_user()
-        body = request.get_json(silent=True) or {}
-        product_id = str(body.get("product_id", ""))
-        product = PRODUCTS.get(product_id)
-        if not product:
-            return jsonify(error="Producto no válido"), 400
-
-        order = paypal_request("POST", "/v2/checkout/orders", {
-            "intent": "CAPTURE",
-            "purchase_units": [{
-                "reference_id": product_id,
-                "description": product["description"],
-                "custom_id": str(user["id"]),
-                "amount": {"currency_code": "EUR", "value": product["price"]},
-            }],
-            "application_context": {
-                "brand_name": GAME_TITLE,
-                "user_action": "PAY_NOW",
-                "return_url": f"{PUBLIC_URL}/?paypal=success",
-                "cancel_url": f"{PUBLIC_URL}/?paypal=cancel",
-            },
-        })
-
-        with store_lock:
-            data = load_store()
-            data["pending_orders"][order["id"]] = {
-                "user_id": str(user["id"]),
-                "product_id": product_id,
-                "status": "CREATED",
-                "created_at": utc_now(),
-            }
-            save_store(data)
-
-        approval = next((link["href"] for link in order.get("links", []) if link.get("rel") == "approve"), None)
-        if not approval:
-            return jsonify(error="PayPal no devolvió el enlace de aprobación"), 502
-        return jsonify(order_id=order["id"], approval_url=approval)
-    except requests.HTTPError as exc:
-        response = getattr(exc, "response", None)
-        paypal_detail = response.text[:1200] if response is not None else str(exc)
-        log.error("Error creando pedido PayPal: %s", paypal_detail, exc_info=True)
-        return jsonify(error="PayPal no ha podido crear el pedido. Revisa las credenciales y el modo sandbox/live."), 502
-    except Exception as exc:
-        log.exception("Error en PayPal")
-        return jsonify(error=str(exc)), 400
-
-
-@app.post("/api/paypal/capture-order")
-def paypal_capture_order():
-    try:
-        user = authenticated_user()
-        body = request.get_json(silent=True) or {}
-        order_id = str(body.get("order_id", ""))
-        if not order_id:
-            return jsonify(error="Falta order_id"), 400
-
-        with store_lock:
-            data = load_store()
-            pending = data["pending_orders"].get(order_id)
-            if not pending or pending["user_id"] != str(user["id"]):
-                return jsonify(error="Pedido no encontrado para este jugador"), 404
-            if pending["status"] == "COMPLETED":
-                player = data["players"].get(str(user["id"]))
-                return jsonify(ok=True, already_captured=True, player=public_player(player))
-
-        captured = paypal_request("POST", f"/v2/checkout/orders/{order_id}/capture", {})
-        if captured.get("status") != "COMPLETED":
-            return jsonify(error="PayPal aún no confirma el pago", status=captured.get("status")), 402
-
-        # Verificamos importe, moneda y referencia devueltos por PayPal antes de entregar.
-        purchase_units = captured.get("purchase_units", [])
-        captures = [
-            cap for unit in purchase_units
-            for cap in unit.get("payments", {}).get("captures", [])
-        ]
-        if not captures or any(cap.get("status") != "COMPLETED" for cap in captures):
-            return jsonify(error="No se ha confirmado la captura del pago"), 402
-        expected_product = PRODUCTS[pending["product_id"]]
-        units = captured.get("purchase_units", [])
-        valid_unit = any(
-            unit.get("reference_id") == pending["product_id"]
-            and str(unit.get("custom_id")) == str(user["id"])
-            and unit.get("amount", {}).get("currency_code") == "EUR"
-            and str(unit.get("amount", {}).get("value")) == str(expected_product["price"])
-            for unit in units
-        )
-        if not valid_unit:
-            log.error("Datos de importe/moneda/usuario no coinciden en pedido PayPal %s", order_id)
-            return jsonify(error="Los datos del pago no coinciden con el pedido"), 402
-
-        with store_lock:
-            data = load_store()
-            pending = data["pending_orders"].get(order_id)
-            if not pending or pending["user_id"] != str(user["id"]):
-                return jsonify(error="Pedido no válido"), 404
-            if pending["status"] != "COMPLETED":
-                player = data["players"].get(str(user["id"]))
-                if not player:
-                    return jsonify(error="Jugador no encontrado"), 404
-                product = PRODUCTS[pending["product_id"]]
-                character = product.get("character")
-                if character:
-                    owned = player.setdefault("owned_characters", ["sprout"])
-                    if character not in owned:
-                        owned.append(character)
-                    player["active_character"] = character
-                player["coins"] += int(product.get("coins", 0))
-                player["medkits"] += int(product.get("medkits", 0))
-                if product.get("upgrade") and product["upgrade"] not in player["upgrades"]:
-                    player["upgrades"].append(product["upgrade"])
-                if product.get("vip_days"):
-                    player["vip_until"] = max(int(player.get("vip_until", 0)), int(time.time())) + product["vip_days"] * 86400
-                player["updated_at"] = utc_now()
-                pending["status"] = "COMPLETED"
-                pending["completed_at"] = utc_now()
-                save_store(data)
-            return jsonify(ok=True, player=public_player(data["players"][str(user["id"])]))
-    except requests.HTTPError as exc:
-        log.exception("Error capturando pedido PayPal")
-        return jsonify(error="PayPal no ha podido confirmar el cobro", detail=str(exc)), 502
-    except Exception as exc:
-        log.exception("Error capturando PayPal")
-        return jsonify(error=str(exc)), 400
-
-
 # ----------------------------- API DEL JUEGO -----------------------------
 
 @app.get("/api/me")
@@ -1336,7 +1166,6 @@ GAME_HTML = r"""<!doctype html>
 <title>Mi Mascota 3D - Tamagotchi</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script async src="https://libtl.com/sdk.js" data-zone="12235771" data-sdk="show_12235771"></script>
-<script>window.ISLA_PAYPAL_CLIENT_ID="__PAYPAL_CLIENT_ID__";</script>
 <style>
 :root{color-scheme:dark;--panel:rgba(19,22,43,.78);--line:rgba(255,255,255,.18);--green:#a8f4d2;--pink:#ff9ecb}
 *{box-sizing:border-box}body{margin:0;background:linear-gradient(145deg,#182448,#452b63 58%,#173f54);color:#fff;font-family:system-ui,Arial;overflow:hidden}
@@ -1366,7 +1195,7 @@ button:active{transform:scale(.97);background:#315b42}button.primary{background:
 @media(max-width:600px){#shop .sheet{max-height:94vh;padding:12px}.vipGrid{grid-template-columns:1fr;gap:10px}.vipCard{display:grid;grid-template-columns:116px minmax(0,1fr);align-items:stretch}.vipArt{height:100%;min-height:116px;aspect-ratio:auto}.vipInfo{justify-content:center;padding:9px}.vipInfo small{min-height:0}}
 @media(min-width:601px) and (max-width:850px){.vipGrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 #walletPanel input{width:100%;padding:12px;border-radius:9px;border:1px solid #ffffff35;background:#14251f;color:#fff;margin:6px 0}#walletPanel .walletBig{font-size:24px;font-weight:900;color:#9be4ad}#walletPanel .walletNote{font-size:11px;color:#b9c9c0;line-height:1.45}
-#paypalPanel{display:none;margin-top:14px;padding:13px;border:1px solid #ffffff25;border-radius:14px;background:#0b1713}#paypal-button-container{min-height:48px}#paypalStatus{font-size:12px;color:#c9d8cf;margin:8px 0}
+#starsPanel{display:none;margin-top:14px;padding:13px;border:1px solid #ffffff25;border-radius:14px;background:#0b1713}#starsStatus{font-size:12px;color:#c9d8cf;margin:8px 0}#starsPayButton{width:100%;min-height:46px;background:linear-gradient(135deg,#6b55c8,#315a9b);color:white;border:0;border-radius:12px;font-weight:800}
 #actionBanner{position:fixed;z-index:3;left:50%;top:47%;transform:translate(-50%,-50%);padding:10px 16px;border-radius:18px;background:rgba(28,38,66,.78);border:1px solid #ffffff55;box-shadow:0 8px 28px #10152b55;color:#fff;font-weight:900;font-size:14px;letter-spacing:.2px;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;backdrop-filter:blur(8px)}#actionBanner.show{opacity:1;transform:translate(-50%,-58%)}
 #hint{position:fixed;z-index:2;left:50%;bottom:104px;transform:translateX(-50%);background:#07120f99;padding:7px 12px;border-radius:20px;font-size:11px;color:#e5eee8;white-space:nowrap;pointer-events:none;max-width:90vw;overflow:hidden;text-overflow:ellipsis}
 @media(max-width:600px){.gameHeader{display:none}.hud{left:7px;right:7px;top:8px;gap:6px}.panel{padding:8px}.petStats{min-width:145px;font-size:10px}.petName{font-size:15px}.petActions{gap:5px;bottom:max(8px,env(safe-area-inset-bottom));width:98vw}.petActions button{min-width:76px;min-height:38px;padding:8px 5px;font-size:10px}#hint{bottom:104px;font-size:10px}.gameChoices{grid-template-columns:1fr}.gameChoices button{min-height:52px}.gameSheet{max-height:88vh;padding:13px}.sickAlert{top:118px;font-size:11px}}
@@ -1434,7 +1263,7 @@ button:active{transform:scale(.97);background:#315b42}button.primary{background:
     <path d="M91 119L80 35q-2-16 13-7l61 61M229 119l11-84q2-16-13-7l-61 61" fill="#e98242" stroke="#9f4938" stroke-width="7" stroke-linejoin="round"/><path d="M100 98L94 55l38 38M220 98l6-43-38 38" fill="#ffc0b0"/>
     <ellipse cx="160" cy="143" rx="83" ry="78" fill="url(#foxFur)"/><path d="M104 161q-2-53 56-64 58 11 56 64-4 56-56 56-52 0-56-56" fill="#fff0dc"/><ellipse cx="129" cy="143" rx="12" ry="16" fill="#292044"/><ellipse cx="191" cy="143" rx="12" ry="16" fill="#292044"/><circle cx="133" cy="137" r="4" fill="white"/><circle cx="195" cy="137" r="4" fill="white"/><ellipse cx="160" cy="172" rx="15" ry="11" fill="#513044"/><path d="M160 183q-9 13-20 2m20-2q9 13 20 2" fill="none" stroke="#8b4651" stroke-width="4" stroke-linecap="round"/><path d="M160 83q-5-24 16-28 16 19 1 35" fill="#a77bff"/><path d="M160 62l5 13 13 5-13 5-5 13-5-13-13-5 13-5z" fill="#ffe68a"/>
    </svg>
-   <div class="vipInfo"><b>🦊 Zorro Aurora VIP</b><small>Pelaje naranja brillante, orejas puntiagudas y aura mágica.</small><span class="vipPrice">2,99 € · Para siempre</span><button id="buyFox" onclick="buy('vip_fox')">Desbloquear</button></div>
+   <div class="vipInfo"><b>🦊 Zorro Aurora VIP</b><small>Pelaje naranja brillante, orejas puntiagudas y aura mágica.</small><span class="vipPrice">150 ⭐ · Para siempre</span><button id="buyFox" onclick="buy('vip_fox')">Desbloquear</button></div>
   </article>
   <article class="vipCard">
    <svg class="vipArt" viewBox="0 0 320 320" role="img" aria-label="Dragón Rubí: pequeño dragón rojo con cuernos y alas">
@@ -1443,7 +1272,7 @@ button:active{transform:scale(.97);background:#315b42}button.primary{background:
     <ellipse cx="160" cy="276" rx="94" ry="18" fill="#160d1c" opacity=".5"/><path d="M112 189Q38 132 45 80q43 12 83 77M208 189q74-57 67-109-43 12-83 77" fill="#8d263f" stroke="#f16b61" stroke-width="7"/><path d="M62 105l47 48-39-12 16 34-36-25M258 105l-47 48 39-12-16 34 36-25" fill="#f4a16d"/>
     <ellipse cx="160" cy="226" rx="67" ry="65" fill="url(#dragonSkin)"/><ellipse cx="160" cy="245" rx="38" ry="40" fill="#f5bd86"/><path d="M105 110l-16-51q-4-14 12-8l47 39M215 110l16-51q4-14-12-8l-47 39" fill="#e7a44e" stroke="#7d2940" stroke-width="7"/><ellipse cx="160" cy="147" rx="83" ry="75" fill="url(#dragonSkin)"/><path d="M112 165q-3-43 48-50 51 7 48 50-4 45-48 45-44 0-48-45" fill="#f4c08e"/><ellipse cx="130" cy="145" rx="12" ry="16" fill="#321c2c"/><ellipse cx="190" cy="145" rx="12" ry="16" fill="#321c2c"/><circle cx="134" cy="139" r="4" fill="white"/><circle cx="194" cy="139" r="4" fill="white"/><ellipse cx="160" cy="175" rx="15" ry="10" fill="#512536"/><path d="M151 186q9 9 18 0" fill="none" stroke="#8e3545" stroke-width="4" stroke-linecap="round"/><path d="M160 83l8 18 18 8-18 8-8 18-8-18-18-8 18-8z" fill="#ffd76a"/>
    </svg>
-   <div class="vipInfo"><b>🐉 Dragón Rubí VIP</b><small>Escamas rojas, pequeños cuernos dorados y alas de dragón.</small><span class="vipPrice">4,99 € · Para siempre</span><button id="buyDragon" onclick="buy('vip_dragon')">Desbloquear</button></div>
+   <div class="vipInfo"><b>🐉 Dragón Rubí VIP</b><small>Escamas rojas, pequeños cuernos dorados y alas de dragón.</small><span class="vipPrice">250 ⭐ · Para siempre</span><button id="buyDragon" onclick="buy('vip_dragon')">Desbloquear</button></div>
   </article>
   <article class="vipCard">
    <svg class="vipArt" viewBox="0 0 320 320" role="img" aria-label="Ajolote Cósmico: ajolote azul y violeta con branquias externas">
@@ -1452,11 +1281,11 @@ button:active{transform:scale(.97);background:#315b42}button.primary{background:
     <ellipse cx="160" cy="276" rx="92" ry="17" fill="#101433" opacity=".5"/><path d="M215 231q70 25 63-22-5-28-27-13 13 22-15 22-16 0-28-13" fill="none" stroke="#75c9ed" stroke-width="23" stroke-linecap="round"/><ellipse cx="160" cy="228" rx="70" ry="66" fill="url(#axoSkin)"/><ellipse cx="160" cy="247" rx="39" ry="39" fill="#e4f8ff"/>
     <ellipse cx="160" cy="147" rx="83" ry="75" fill="url(#axoSkin)"/><g stroke="#ff8bc7" stroke-width="10" stroke-linecap="round" fill="none"><path d="M91 132q-39-31-47-4m47 16q-43-5-55 20m55-3q-31 14-36 39M229 132q39-31 47-4m-47 16q43-5 55 20m-55-3q31 14 36 39"/></g><g fill="#ffb0dc"><circle cx="44" cy="128" r="7"/><circle cx="36" cy="164" r="7"/><circle cx="55" cy="202" r="7"/><circle cx="276" cy="128" r="7"/><circle cx="284" cy="164" r="7"/><circle cx="265" cy="202" r="7"/></g><ellipse cx="130" cy="146" rx="12" ry="16" fill="#20335a"/><ellipse cx="190" cy="146" rx="12" ry="16" fill="#20335a"/><circle cx="134" cy="140" r="4" fill="white"/><circle cx="194" cy="140" r="4" fill="white"/><ellipse cx="160" cy="174" rx="14" ry="10" fill="#49618e"/><path d="M148 186q12 10 24 0" fill="none" stroke="#d26aa9" stroke-width="4" stroke-linecap="round"/><path d="M160 82l5 13 13 5-13 5-5 13-5-13-13-5 13-5z" fill="#e9d1ff"/>
    </svg>
-   <div class="vipInfo"><b>🩵 Ajolote Cósmico VIP</b><small>Piel azul luminosa, branquias rosas y cola acuática.</small><span class="vipPrice">3,99 € · Para siempre</span><button id="buyAxolotl" onclick="buy('vip_axolotl')">Desbloquear</button></div>
+   <div class="vipInfo"><b>🩵 Ajolote Cósmico VIP</b><small>Piel azul luminosa, branquias rosas y cola acuática.</small><span class="vipPrice">200 ⭐ · Para siempre</span><button id="buyAxolotl" onclick="buy('vip_axolotl')">Desbloquear</button></div>
   </article>
  </div>
- <p class="sub">Los personajes VIP son cosméticos: no dan ventajas ni hacen falta para cuidar y jugar. Pago seguro mediante PayPal.</p>
- <div id="paypalPanel"><div style="display:flex;justify-content:space-between;align-items:center"><b>🔒 Pago seguro</b><button onclick="closePaypal()">Cerrar</button></div><p id="paypalStatus">Elige PayPal o tarjeta para completar tu compra.</p><div id="paypal-wallet-container"></div><div id="paypal-card-container"></div><div id="paypal-button-container" style="display:none"></div></div>
+ <p class="sub">Los personajes VIP son cosméticos: no dan ventajas ni hacen falta para cuidar y jugar. Pago seguro integrado con Telegram Stars.</p>
+ <div id="starsPanel"><div style="display:flex;justify-content:space-between;align-items:center"><b>⭐ Pago con Telegram Stars</b><button onclick="closeStarsPanel()">Cerrar</button></div><p id="starsStatus">Confirma la compra en la ventana segura de Telegram.</p><button id="starsPayButton" onclick="confirmStarsPurchase()">Pagar con ⭐ Telegram Stars</button></div>
  </div></div>
 
 <script type="module">
@@ -1524,69 +1353,49 @@ window.selectCharacter=async(character)=>{const result=await window.act('select_
 
 window.openShop=()=>{document.getElementById('shop').style.display='flex';if(player)renderPlayer(player)};
 window.closeShop=()=>document.getElementById('shop').style.display='none';
-let paypalSdkPromise=null;
-let paypalButtonsInstance=null;
-let selectedPaypalProduct=null;
-function loadPaypalSdk(){
- const clientId=window.ISLA_PAYPAL_CLIENT_ID||'';
- if(!clientId) return Promise.reject(new Error('Falta PAYPAL_CLIENT_ID en las variables de Render.'));
- if(window.paypal?.Buttons) return Promise.resolve(window.paypal);
- if(paypalSdkPromise) return paypalSdkPromise;
- paypalSdkPromise=new Promise((resolve,reject)=>{
-  const script=document.createElement('script');
-  // Se solicitan explícitamente las fuentes PayPal y tarjeta; antes el SDK podía
-  // mostrar únicamente la opción de tarjeta según la elegibilidad automática.
-  script.src='https://www.paypal.com/sdk/js?client-id='+encodeURIComponent(clientId)+'&currency=EUR&intent=capture&components=buttons&enable-funding=card&disable-funding=paylater,venmo';
-  script.onload=()=>window.paypal?.Buttons?resolve(window.paypal):reject(new Error('No se ha podido iniciar PayPal. Revisa que PAYPAL_CLIENT_ID sea de la misma cuenta y entorno que PAYPAL_CLIENT_SECRET.'));
-  script.onerror=()=>reject(new Error('No se ha podido cargar el SDK de PayPal. Comprueba la conexión y el dominio autorizado en PayPal.'));
-  document.head.appendChild(script);
- });
- return paypalSdkPromise;
-}
-window.closePaypal=()=>{document.getElementById('paypalPanel').style.display='none';selectedPaypalProduct=null;};
+let selectedStarsProduct=null;
+window.closeStarsPanel=()=>{document.getElementById('starsPanel').style.display='none';selectedStarsProduct=null;};
 window.buy=async(product_id)=>{
+ selectedStarsProduct=product_id;
+ const panel=document.getElementById('starsPanel');
+ const status=document.getElementById('starsStatus');
+ panel.style.display='block';
+ status.textContent='Pulsa el botón para abrir el pago seguro de Telegram.';
+ document.getElementById('starsPayButton').disabled=false;
+};
+window.confirmStarsPurchase=async()=>{
+ if(!selectedStarsProduct)return;
+ const status=document.getElementById('starsStatus');
+ const button=document.getElementById('starsPayButton');
+ if(!tg || typeof tg.openInvoice!=='function'){
+  status.textContent='Abre el juego desde Telegram para pagar con Stars.';
+  return;
+ }
+ button.disabled=true;status.textContent='Preparando factura de Telegram Stars…';
  try{
-  selectedPaypalProduct=product_id;
-  const panel=document.getElementById('paypalPanel');
-  const status=document.getElementById('paypalStatus');
-  panel.style.display='block';status.textContent='Cargando las opciones de pago…';
-  await loadPaypalSdk();
-  const wallet=document.getElementById('paypal-wallet-container');
-  const card=document.getElementById('paypal-card-container');
-  wallet.innerHTML='';card.innerHTML='';
-  const finishPurchase=async(data)=>{
-   status.textContent='Verificando el pago con PayPal…';
-   try{
-    const result=await api('/api/paypal/capture-order',{order_id:data.orderID});
-    if(!result.ok) throw new Error('PayPal no ha confirmado la compra.');
-    renderPlayer(result.player);
-    status.textContent='¡Pago confirmado! Tu compra ya está en tu inventario.';
-    toast('✅ Compra recibida. ¡Gracias por apoyar Mi Mascota 3D!');
+  const invoice=await api('/api/stars/create-invoice',{product_id:selectedStarsProduct});
+  if(!invoice.invoice_url)throw new Error('Telegram no ha devuelto el enlace de pago.');
+  status.textContent='Esperando la confirmación de Telegram…';
+  tg.openInvoice(invoice.invoice_url,async(paymentStatus)=>{
+   if(paymentStatus==='paid'){
+    status.textContent='Pago recibido. Actualizando tu compra…';
+    // El webhook acredita el producto; recargamos el perfil unos instantes para reflejarlo.
+    for(let i=0;i<6;i++){
+     await new Promise(resolve=>setTimeout(resolve,700));
+     try{const data=await api('/api/me');renderPlayer(data.player);}catch(e){}
+    }
+    status.textContent='¡Compra completada! Tu personaje VIP ya está desbloqueado.';
+    toast('⭐ Pago confirmado. ¡Gracias por tu compra!');
     setTimeout(()=>{panel.style.display='none';},1800);
-   }catch(err){status.textContent=err.message||'No se pudo verificar el pago. Si PayPal te ha cobrado, no repitas la compra y contacta con soporte.';}
-  };
-  const common={
-   style:{layout:'vertical',shape:'rect',height:45},
-   createOrder:async()=>{
-    const result=await api('/api/paypal/create-order',{product_id:selectedPaypalProduct});
-    return result.order_id;
-   },
-   onApprove:finishPurchase,
-   onCancel:()=>{status.textContent='Has cancelado el pago. Tu partida sigue abierta.';},
-   onError:(err)=>{console.error('PayPal checkout:',err);status.textContent='PayPal no ha podido completar esta opción. Prueba la otra opción de pago o revisa la configuración de tu cuenta PayPal.';}
-  };
-  let rendered=0;
-  if(window.paypal.FUNDING?.PAYPAL){
-   const paypalButton=window.paypal.Buttons({...common,fundingSource:window.paypal.FUNDING.PAYPAL,style:{...common.style,label:'paypal'}});
-   if(paypalButton.isEligible()){await paypalButton.render('#paypal-wallet-container');rendered++;}
-  }
-  if(window.paypal.FUNDING?.CARD){
-   const cardButton=window.paypal.Buttons({...common,fundingSource:window.paypal.FUNDING.CARD,style:{...common.style,label:'pay'}});
-   if(cardButton.isEligible()){await cardButton.render('#paypal-card-container');rendered++;}
-  }
-  if(!rendered) throw new Error('PayPal no ofrece pagos disponibles para este Client ID, país o cuenta. Comprueba que la aplicación esté activa y habilitada para Checkout.');
-  status.textContent='Puedes pagar con tu cuenta PayPal o con tarjeta.';
- }catch(e){document.getElementById('paypalStatus').textContent=e.message;toast(e.message);}
+   }else if(paymentStatus==='cancelled'){
+    status.textContent='Has cancelado el pago. No se ha realizado ningún cargo.';button.disabled=false;
+   }else if(paymentStatus==='failed'){
+    status.textContent='Telegram no ha podido completar el pago. Inténtalo de nuevo.';button.disabled=false;
+   }else{
+    status.textContent='El pago está pendiente de confirmación. Tu compra se actualizará cuando Telegram confirme el cobro.';button.disabled=false;
+   }
+  });
+ }catch(e){status.textContent=e.message||'No se ha podido iniciar el pago con Telegram Stars.';button.disabled=false;toast(status.textContent);}
 };
 // Minijuegos táctiles: cada partida tiene una interacción real y anima a la mascota.
 let miniGameTimer=null;
@@ -1663,7 +1472,7 @@ async function startMonetagInApp(){
   console.info('Monetag In-App Interstitial iniciado.');
  }catch(e){console.warn('Monetag In-App Interstitial:',e);}
 }
-async function captureIfReturned(){ /* PayPal captura el pedido desde onApprove; la partida permanece abierta. */ }
+async function captureIfReturned(){ /* Telegram Stars confirma las compras mediante el webhook del bot. */ }
 
 // Escena 3D mejorada: vegetación animada, modelos orgánicos y acciones físicas.
 const host=document.getElementById('scene');
@@ -2022,7 +1831,7 @@ function animate(){
 }
 animate();
 addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
-load();captureIfReturned();
+load();
 // Inicia el formato automático después de que el SDK asíncrono esté disponible.
 startMonetagInApp();
 </script>
@@ -2031,15 +1840,14 @@ startMonetagInApp();
 
 @app.get("/")
 def index():
-    html = GAME_HTML.replace("__PAYPAL_CLIENT_ID__", PAYPAL_CLIENT_ID)
-    html = html.replace("__PET_AVATAR_B64__", PET_AVATAR_B64)
+    html = GAME_HTML.replace("__PET_AVATAR_B64__", PET_AVATAR_B64)
     response = make_response(html)
     response.headers["Cache-Control"] = "no-store"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self' https: data: blob:; "
-        "script-src 'self' 'unsafe-inline' https://telegram.org https://cdn.jsdelivr.net https://libtl.com https://*.libtl.com https://www.paypal.com https://www.paypalobjects.com; "
+        "script-src 'self' 'unsafe-inline' https://telegram.org https://cdn.jsdelivr.net https://libtl.com https://*.libtl.com; "
         "style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; "
-        "connect-src 'self' https:; frame-src https://www.paypal.com https://www.sandbox.paypal.com https:;"
+        "connect-src 'self' https:; frame-src https:;"
     )
     return response
 
