@@ -791,7 +791,11 @@ def paypal_access_token() -> str:
         headers={"Accept": "application/json"},
         timeout=25,
     )
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except requests.HTTPError:
+        log.error("PayPal OAuth rechazó las credenciales (%s): %s", response.status_code, response.text[:1000])
+        raise
     return response.json()["access_token"]
 
 
@@ -853,8 +857,10 @@ def paypal_create_order():
             return jsonify(error="PayPal no devolvió el enlace de aprobación"), 502
         return jsonify(order_id=order["id"], approval_url=approval)
     except requests.HTTPError as exc:
-        log.exception("Error creando pedido PayPal")
-        return jsonify(error="PayPal no ha podido crear el pedido", detail=str(exc)), 502
+        response = getattr(exc, "response", None)
+        paypal_detail = response.text[:1200] if response is not None else str(exc)
+        log.error("Error creando pedido PayPal: %s", paypal_detail, exc_info=True)
+        return jsonify(error="PayPal no ha podido crear el pedido. Revisa las credenciales y el modo sandbox/live."), 502
     except Exception as exc:
         log.exception("Error en PayPal")
         return jsonify(error=str(exc)), 400
@@ -1005,9 +1011,8 @@ def api_action():
                 player["pet_health"] = min(100, float(player.get("pet_health", 100)) + health_gain)
                 message = f"¡Ñam! Ha comido {food_name}."
             elif action == "give_water":
-                if int(player.get("water", 0)) < 1:
-                    return jsonify(error="No tienes agua. Recoge el regalo diario para conseguir más."), 400
-                player["water"] -= 1
+                # El agua para la mascota es ilimitada: no consume el agua del inventario
+                # de supervivencia ni requiere recoger recursos o recompensas.
                 player["pet_thirst"] = min(100, float(player.get("pet_thirst", 100)) + 42)
                 player["pet_happiness"] = min(100, float(player["pet_happiness"]) + 3)
                 message = "¡Glup, glup! Tu mascota ha bebido agua fresca."
@@ -1394,7 +1399,7 @@ button:active{transform:scale(.97);background:#315b42}button.primary{background:
 <div id="toast"></div>
 <div class="petActions">
  <button class="primary" onclick="openFeedMenu()">🍓 Dar de comer</button>
- <button onclick="petAction('give_water')">💧 Dar agua <b id="waterCount">2</b></button>
+ <button onclick="petAction('give_water')">💧 Dar agua <b id="waterCount">∞</b></button>
  <button onclick="petAction('play_pet')">🎾 Jugar</button>
  <button onclick="petAction('clean_pet')">🫧 Bañar</button>
  <button onclick="petAction('clean_poop')">🧹 Recoger caca <b id="poopCount">0</b></button>
@@ -1451,7 +1456,7 @@ button:active{transform:scale(.97);background:#315b42}button.primary{background:
   </article>
  </div>
  <p class="sub">Los personajes VIP son cosméticos: no dan ventajas ni hacen falta para cuidar y jugar. Pago seguro mediante PayPal.</p>
- <div id="paypalPanel"><div style="display:flex;justify-content:space-between;align-items:center"><b>🔒 Pago seguro con PayPal</b><button onclick="closePaypal()">Cerrar</button></div><p id="paypalStatus">Elige PayPal para completar tu compra.</p><div id="paypal-button-container"></div></div>
+ <div id="paypalPanel"><div style="display:flex;justify-content:space-between;align-items:center"><b>🔒 Pago seguro</b><button onclick="closePaypal()">Cerrar</button></div><p id="paypalStatus">Elige PayPal o tarjeta para completar tu compra.</p><div id="paypal-wallet-container"></div><div id="paypal-card-container"></div><div id="paypal-button-container" style="display:none"></div></div>
  </div></div>
 
 <script type="module">
@@ -1493,7 +1498,7 @@ function renderPlayer(p){
  const owned=p.owned_characters||['sprout'];
  [['aurora_fox','buyFox','vip_fox'],['ruby_dragon','buyDragon','vip_dragon'],['cosmic_axolotl','buyAxolotl','vip_axolotl']].forEach(([id,buttonId,product])=>{const b=document.getElementById(buttonId);if(!b)return;if(owned.includes(id)){b.textContent=p.active_character===id?'En uso':'Usar';b.onclick=()=>selectCharacter(id);}else{b.textContent='Desbloquear';b.onclick=()=>buy(product);}});
  document.getElementById('foodCount').textContent=Number(p.food||0);
- const waterCount=document.getElementById('waterCount');if(waterCount)waterCount.textContent=Number(p.water||0);
+ const waterCount=document.getElementById('waterCount');if(waterCount)waterCount.textContent='∞';
  const rewardBtn=document.getElementById('rewardedAdButton'); if(rewardBtn){const capped=Number(p.rewarded_ads_count||0)>=10;rewardBtn.disabled=capped;rewardBtn.textContent=capped?'Límite diario alcanzado':'🎬 Anuncio + pienso';}
  document.getElementById('level').textContent=`Nivel ${p.level}`;
  document.getElementById('xp').textContent=`${p.xp} / ${p.level*100} XP`;
@@ -1529,9 +1534,11 @@ function loadPaypalSdk(){
  if(paypalSdkPromise) return paypalSdkPromise;
  paypalSdkPromise=new Promise((resolve,reject)=>{
   const script=document.createElement('script');
-  script.src='https://www.paypal.com/sdk/js?client-id='+encodeURIComponent(clientId)+'&currency=EUR&intent=capture&components=buttons';
-  script.onload=()=>window.paypal?.Buttons?resolve(window.paypal):reject(new Error('No se ha podido iniciar PayPal.'));
-  script.onerror=()=>reject(new Error('No se ha podido cargar PayPal. Comprueba la conexión.'));
+  // Se solicitan explícitamente las fuentes PayPal y tarjeta; antes el SDK podía
+  // mostrar únicamente la opción de tarjeta según la elegibilidad automática.
+  script.src='https://www.paypal.com/sdk/js?client-id='+encodeURIComponent(clientId)+'&currency=EUR&intent=capture&components=buttons&enable-funding=card&disable-funding=paylater,venmo';
+  script.onload=()=>window.paypal?.Buttons?resolve(window.paypal):reject(new Error('No se ha podido iniciar PayPal. Revisa que PAYPAL_CLIENT_ID sea de la misma cuenta y entorno que PAYPAL_CLIENT_SECRET.'));
+  script.onerror=()=>reject(new Error('No se ha podido cargar el SDK de PayPal. Comprueba la conexión y el dominio autorizado en PayPal.'));
   document.head.appendChild(script);
  });
  return paypalSdkPromise;
@@ -1542,33 +1549,43 @@ window.buy=async(product_id)=>{
   selectedPaypalProduct=product_id;
   const panel=document.getElementById('paypalPanel');
   const status=document.getElementById('paypalStatus');
-  panel.style.display='block';status.textContent='Cargando pago seguro…';
+  panel.style.display='block';status.textContent='Cargando las opciones de pago…';
   await loadPaypalSdk();
-  const container=document.getElementById('paypal-button-container');
-  container.innerHTML='';
-  if(paypalButtonsInstance){paypalButtonsInstance=null;}
-  paypalButtonsInstance=window.paypal.Buttons({
-   style:{layout:'vertical',shape:'rect',label:'paypal',height:45},
+  const wallet=document.getElementById('paypal-wallet-container');
+  const card=document.getElementById('paypal-card-container');
+  wallet.innerHTML='';card.innerHTML='';
+  const finishPurchase=async(data)=>{
+   status.textContent='Verificando el pago con PayPal…';
+   try{
+    const result=await api('/api/paypal/capture-order',{order_id:data.orderID});
+    if(!result.ok) throw new Error('PayPal no ha confirmado la compra.');
+    renderPlayer(result.player);
+    status.textContent='¡Pago confirmado! Tu compra ya está en tu inventario.';
+    toast('✅ Compra recibida. ¡Gracias por apoyar Mi Mascota 3D!');
+    setTimeout(()=>{panel.style.display='none';},1800);
+   }catch(err){status.textContent=err.message||'No se pudo verificar el pago. Si PayPal te ha cobrado, no repitas la compra y contacta con soporte.';}
+  };
+  const common={
+   style:{layout:'vertical',shape:'rect',height:45},
    createOrder:async()=>{
     const result=await api('/api/paypal/create-order',{product_id:selectedPaypalProduct});
     return result.order_id;
    },
-   onApprove:async(data)=>{
-    status.textContent='Verificando el pago con PayPal…';
-    try{
-     const result=await api('/api/paypal/capture-order',{order_id:data.orderID});
-     if(!result.ok) throw new Error('PayPal no ha confirmado la compra.');
-     renderPlayer(result.player);
-     status.textContent='¡Pago confirmado! Tu compra ya está en tu inventario.';
-     toast('✅ Compra recibida. ¡Gracias por apoyar Mi Mascota 3D!');
-     setTimeout(()=>{panel.style.display='none';},1800);
-    }catch(err){status.textContent=err.message||'No se pudo verificar el pago. Contacta con soporte si PayPal te ha cobrado.';}
-   },
+   onApprove:finishPurchase,
    onCancel:()=>{status.textContent='Has cancelado el pago. Tu partida sigue abierta.';},
-   onError:(err)=>{console.error('PayPal checkout:',err);status.textContent='PayPal ha encontrado un error. Inténtalo de nuevo.';}
-  });
-  await paypalButtonsInstance.render('#paypal-button-container');
-  status.textContent='Pulsa el botón PayPal para pagar sin cerrar tu partida.';
+   onError:(err)=>{console.error('PayPal checkout:',err);status.textContent='PayPal no ha podido completar esta opción. Prueba la otra opción de pago o revisa la configuración de tu cuenta PayPal.';}
+  };
+  let rendered=0;
+  if(window.paypal.FUNDING?.PAYPAL){
+   const paypalButton=window.paypal.Buttons({...common,fundingSource:window.paypal.FUNDING.PAYPAL,style:{...common.style,label:'paypal'}});
+   if(paypalButton.isEligible()){await paypalButton.render('#paypal-wallet-container');rendered++;}
+  }
+  if(window.paypal.FUNDING?.CARD){
+   const cardButton=window.paypal.Buttons({...common,fundingSource:window.paypal.FUNDING.CARD,style:{...common.style,label:'pay'}});
+   if(cardButton.isEligible()){await cardButton.render('#paypal-card-container');rendered++;}
+  }
+  if(!rendered) throw new Error('PayPal no ofrece pagos disponibles para este Client ID, país o cuenta. Comprueba que la aplicación esté activa y habilitada para Checkout.');
+  status.textContent='Puedes pagar con tu cuenta PayPal o con tarjeta.';
  }catch(e){document.getElementById('paypalStatus').textContent=e.message;toast(e.message);}
 };
 // Minijuegos táctiles: cada partida tiene una interacción real y anima a la mascota.
